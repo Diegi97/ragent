@@ -1,17 +1,23 @@
 import os
-from typing import List, Tuple
+from typing import List, Dict
 
 import bm25s
 import logging
 from datasets import load_dataset
 from ragent.config import HF_TOKEN
 from ragent.data.pipelines import get_pipeline_run, safe_ds_name
+from ragent.data.prompts.search_engine import prompt as search_engine_prompt
 
 logger = logging.getLogger(__name__)
 
 
 class BM25Client:
-    _retriever = {}
+    _retrievers = {}
+    prompt = search_engine_prompt
+
+    def __init__(self, hf_ds):
+        self.hf_ds = hf_ds
+        self.load_retriever(self.hf_ds)
 
     @staticmethod
     def ds_to_index_dir(ds_name):
@@ -43,32 +49,49 @@ class BM25Client:
     @classmethod
     def load_retriever(cls, hf_ds):
         """Carga el retriever en memoria si no está cargado todavía."""
-        if cls._retriever.get(hf_ds) is None:
+        if cls._retrievers.get(hf_ds) is None:
             index_dir = cls.ds_to_index_dir(hf_ds)
             if not os.path.exists(index_dir):
-                cls._retriever = cls.populate_database(hf_ds)
+                cls._retrievers[hf_ds] = cls.populate_database(hf_ds)
             else:
                 logger.info(f"Cargando retriever desde '{index_dir}'...")
-                cls._retriever = bm25s.BM25.load(index_dir, load_corpus=True)
-        return cls._retriever
+                cls._retrievers[hf_ds] = bm25s.BM25.load(index_dir, load_corpus=True)
+        return cls._retrievers[hf_ds]
 
-    @classmethod
+    @staticmethod
+    def format_search_results(results):
+        output = []
+        for i in range(results.shape[1]):
+            doc = results[0, i]
+
+            text = doc.get("text", "")
+            preview_words = text.split()[:20]
+            preview = " ".join(preview_words) + "..." if preview_words else ""
+
+            output.append({
+                "id": doc.get("id"),
+                "title": doc.get("title", ""),
+                "preview": preview
+            })
+        return output
+
     def search_tool(
-        cls,
+        self,
         query: str,
         k: int = 5
-    ) -> List[Tuple[int, float]]:
+    ) -> List[Dict[str, str]]:
         """
         Search the indexed corpus for the most relevant documents.
 
         This method:
           1. Tokenizes the query string using the same preprocessing as the corpus.
           2. Retrieves the top `k` matching documents based on BM25 scores.
-          3. Returns each match as a tuple containing:
-             - A dictionary with:
-               - "id" (Any): Identifier of the document in the dataset.
-               - "text" (str): Full text content of the document.
-             - The BM25 relevance score as a float.
+          3. Transforms each retrieved document into a standardized dictionary
+             containing:
+             - "id": Identifier of the document in the dataset.
+             - "title": Title of the document (if present; otherwise empty string).
+             - "preview": The first 20 words of the document text, ending with "...".
+               This provides a short snippet of content for quick reference.
 
         Args:
             query (str): The natural language search query.
@@ -76,34 +99,68 @@ class BM25Client:
                 Defaults to 5.
 
         Returns:
-            List[Tuple[Dict[str, Any], float]]:
-                A list of `(document_metadata, score)` tuples.
-                `document_metadata` has keys:
+            List[Dict[str, str]]:
+                A list of dictionaries, each with the following keys:
                     - "id" (Any): Document identifier.
-                    - "text" (str): Document's text content.
-                The `score` is the BM25 relevance score (higher means more relevant).
+                    - "title" (str): Document's title (or empty string if missing).
+                    - "preview" (str): First 20 words of the document text, ending
+                      with "...".
 
         Example:
             >>> results = search_tool("machine learning models", k=2)
             >>> results
             [
-                ({"id": 42, "text": "Intro to Machine Learning..."}, 5.43),
-                ({"id": 7, "text": "Deep learning architectures..."}, 4.98)
+                {
+                    "id": 42,
+                    "title": "Introduction to Machine Learning",
+                    "preview": "Machine learning is a field of artificial intelligence that focuses on building systems..."
+                },
+                {
+                    "id": 7,
+                    "title": "Deep Learning Architectures",
+                    "preview": "Deep learning is a subfield of machine learning concerned with algorithms inspired by..."
+                }
             ]
         """
-
-        retriever = cls.load_retriever()
-
+        ret = self.load_retriever(self.hf_ds)
         query_tokens = bm25s.tokenize(query, stopwords="en")
-        results, scores = retriever.retrieve(query_tokens, k=k, corpus=retriever.corpus)
+        results, _ = ret.retrieve(query_tokens, k=k, corpus=ret.corpus)
 
-        return [
-            (results[0, i], scores[0, i])
-            for i in range(results.shape[1])
-        ]
+        return self.format_search_results(results)
 
+    def read_tool(self, doc_id) -> Dict[str, str] | str:
+        """
+        Retrieve the full document from the indexed corpus by its ID.
+
+        Args:
+            doc_id (Any): The unique identifier of the document.
+
+        Returns:
+            Dict[str, str]: A dictionary containing all available fields
+                for the document (e.g., "id", "title", "text", etc.).
+            Or
+            str: An error message if the document is not found.
+
+        Example:
+            >>> bm25 = BM25Client("my_dataset")
+            >>> bm25.read_tool(42)
+            {
+                "id": 42,
+                "title": "Introduction to Machine Learning",
+                "text": "Machine learning is a field of artificial intelligence that..."
+            }
+            >>> bm25.read_tool(9999)
+            "Error: Document with id '9999' not found in corpus."
+        """
+        ret = self.load_retriever(self.hf_ds)
+
+        for doc in ret.corpus:
+            if doc.get("id") == doc_id:
+                return doc
+
+        return f"Error: Document with id '{doc_id}' not found in corpus."
 
 if __name__ == "__main__":
-    resultados = BM25Client.search("What is the way for using a Django Serializer?", k=3)
-    for rank, (doc, score) in enumerate(resultados, start=1):
-        logger.info(f"Rank {rank} (score: {score:.2f}): {doc}")
+    res = BM25Client.search_tool("What is the way for using a Django Serializer?")
+    for doc in res:
+        logger.info(f"Found doc: {doc}\n\n")
