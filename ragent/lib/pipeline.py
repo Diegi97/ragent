@@ -5,7 +5,6 @@ import datasets
 from .dataset_cleaning import compute_latest_version_map, is_latest_label
 
 
-
 def compute_latest_version_map_from_dataset(dataset, language_column = "language"):
     """
     Compute max version per base directly from a Hugging Face Dataset's language column.
@@ -58,6 +57,29 @@ def apply_transforms(dataset, transforms):
     return dataset
 
 
+def filter_by_max_word_count(dataset, text_column = "text", max_words = 15000):
+    """
+    Remove rows where the `text_column` contains more than `max_words` words.
+
+    - If the value is a string, words are split by whitespace.
+    - If the value is a list/sequence, its length is used.
+    - If the value is missing or None, the row is kept.
+    """
+
+    def _should_keep(example):
+        value = example.get(text_column) if isinstance(example, dict) else None
+        if value is None:
+            return True
+        if isinstance(value, str):
+            return len(value.split()) <= max_words
+        try:
+            return len(value) <= max_words
+        except Exception:
+            return True
+
+    return dataset.filter(_should_keep)
+
+
 def prepare_devdocs_dataset(
     dataset_name = "nampdn-ai/devdocs.io",
     split = "train",
@@ -66,6 +88,8 @@ def prepare_devdocs_dataset(
     id_start = 0,
     keep_columns = None,
     extra_transforms = None,
+    text_column = "text",
+    max_text_words = 15000,
 ):
     """
     Load a Hugging Face dataset split, then build a modular pipeline:
@@ -78,6 +102,7 @@ def prepare_devdocs_dataset(
 
     transforms = [
         lambda d: keep_latest_versions(d, language_column=language_column),
+        lambda d: filter_by_max_word_count(d, text_column=text_column, max_words=max_text_words),
         lambda d: add_incrementing_id(d, id_column=id_column, id_start=id_start),
     ]
 
@@ -94,6 +119,7 @@ def prepare_devdocs_dataset(
 __all__ = [
     "compute_latest_version_map_from_dataset",
     "keep_latest_versions",
+    "filter_by_max_word_count",
     "add_incrementing_id",
     "select_columns",
     "apply_transforms",
