@@ -1,0 +1,72 @@
+[
+    {
+      "question": "In the context of the `WP_Query` class, what is the described purpose of the `__call` magic method?",
+      "answer": "To make private/protected methods readable for backward compatibility. [2, 7]",
+      "doc_id": 140930,
+      "language": "wordpress",
+      "title": "classes/wp_query/__call"
+    },
+    {
+      "question": "What is the designated role of the protected `init` method within the `EntityForm` base class?",
+      "answer": "The `init` method's purpose is to initialize the form state and the entity before the first form build. [1]",
+      "doc_id": 46601,
+      "language": "drupal~8",
+      "title": "core-lib-drupal-core-entity-entityform.php/function/entityform-init/8.1.x"
+    },
+    {
+      "question": "What is the main responsibility of the `DRb::DRbMessage` class, which acts as a handler for sending and receiving drb messages?",
+      "answer": "This class is responsible for the low-level marshalling and unmarshalling of drb requests and responses that are transmitted between a server and a client. [8, 11, 17]",
+      "doc_id": 115497,
+      "language": "ruby~3.2",
+      "title": "drb/drbmessage"
+    },
+    {
+      "question": "When using `std::numeric_limits<T>::min()`, what value is returned for floating-point types that support denormalization?",
+      "answer": "For floating-point types with denormalization, `min()` provides the minimum positive normalized value.",
+      "doc_id": 18460,
+      "language": "cpp",
+      "title": "types/numeric_limits/min"
+    },
+    {
+      "question": "Within the `UnobservedComponentsResults` class, what does the `fittedvalues` attribute provide?",
+      "answer": "The `fittedvalues` attribute returns the predicted values of the model as an (nobs x k_endog) array.",
+      "doc_id": 126282,
+      "language": "statsmodels",
+      "title": "generated/statsmodels.tsa.statespace.structural.unobservedcomponentsresults.fittedvalues"
+    },
+    {
+      "question": "According to the documentation for the `azure_rm_recoveryservicesvault_info` module, what methods can be used for Azure authentication?",
+      "answer": "To authenticate with Azure, you have several options: passing parameters directly, setting environment variables, using a profile stored in `~/.azure/credentials`, or logging in with `az login`. It is also possible to authenticate via a service principal or an Active Directory user. [5]",
+      "doc_id": 1874,
+      "language": "ansible",
+      "title": "collections/azure/azcollection/azure_rm_recoveryservicesvault_info_module"
+    },
+    {
+      "question": "When using the `management.onDisabled` event listener, what argument is passed to the callback function when the event occurs?",
+      "answer": "When an add-on is disabled, the listener's callback function is passed an `ExtensionInfo` object which contains information about that specific add-on. [10, 13, 16]",
+      "doc_id": 138332,
+      "language": "web_extensions",
+      "title": "api/management/ondisabled"
+    },
+    {
+      "question": "To create an instance of the `BetweenExpression` class for a SQL snippet, what parameters does its constructor accept?",
+      "answer": "The constructor takes a `$field` to compare, a `$from` value for the start of the range, a `$to` value for the end of the range, and an optional `$type` to specify the data type for the values.",
+      "doc_id": 9937,
+      "language": "cakephp~4.4",
+      "title": "class-cake.database.expression.betweenexpression"
+    },
+    {
+      "question": "Within the `CSSKeyframesRule` interface, what does the `name` property represent and how is it used?",
+      "answer": "The `name` property of the `CSSKeyframeRule` interface gets and sets the name of an animation, which is utilized by the `animation-name` property. [6]",
+      "doc_id": 36400,
+      "language": "dom",
+      "title": "csskeyframesrule/name"
+    },
+    {
+      "question": "What is the behavior of the `SemiMonthBegin.rollback()` method when called?",
+      "answer": "This method rolls a given date backward to the next offset, but only if the date is not already on an offset. [12]",
+      "doc_id": 91600,
+      "language": "pandas~1",
+      "title": "reference/api/pandas.tseries.offsets.semimonthbegin.rollback"
+    }
+  ]
