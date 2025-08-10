@@ -1,26 +1,32 @@
 import os
+from typing import List, Tuple
+
 import bm25s
 import logging
 from datasets import load_dataset
-from ragent.config import HUGGING_FACE_DATASET, HF_TOKEN
-from ragent.data.pipelines import get_pipeline_run, dataset_to_module_name
+from ragent.config import HF_TOKEN
+from ragent.data.pipelines import get_pipeline_run, safe_ds_name
 
 logger = logging.getLogger(__name__)
 
-INDEX_DIR = f"data/{dataset_to_module_name(HUGGING_FACE_DATASET)}/bm25s_corpus_index/"
-
 
 class BM25Client:
-    _retriever = None  # atributo de clase
+    _retriever = {}
+
+    @staticmethod
+    def ds_to_index_dir(ds_name):
+        return f"data/{safe_ds_name(ds_name)}/bm25s_corpus_index/"
 
     @classmethod
-    def populate_database(cls, split="train", corpus_column="text", force=False):
-        if not force and os.path.exists(INDEX_DIR):
-            logger.info(f"Index: '{INDEX_DIR}' already exists, skipping.")
+    def populate_database(cls, hf_ds, split="train", corpus_column="text", force=False):
+        index_dir = cls.ds_to_index_dir(hf_ds)
+
+        if not force and os.path.exists(index_dir):
+            logger.info(f"Index: '{index_dir}' already exists, skipping.")
             return
 
-        dataset = load_dataset(HUGGING_FACE_DATASET, token=HF_TOKEN)
-        pipeline_run = get_pipeline_run(HUGGING_FACE_DATASET)
+        dataset = load_dataset(hf_ds, token=HF_TOKEN)
+        pipeline_run = get_pipeline_run(hf_ds)
 
         dataset_split_clean = pipeline_run(dataset[split])
 
@@ -30,33 +36,62 @@ class BM25Client:
         retriever = bm25s.BM25()
         retriever.index(corpus_tokens)
 
-        retriever.save(INDEX_DIR, corpus=corpus)
-        logger.info("Index succesfully created.")
+        retriever.save(index_dir, corpus=corpus)
+        logger.info("Index successfully created.")
         return retriever
 
     @classmethod
-    def load_retriever(cls):
+    def load_retriever(cls, hf_ds):
         """Carga el retriever en memoria si no está cargado todavía."""
-        if cls._retriever is None:
-            if not os.path.exists(INDEX_DIR):
-                cls._retriever = cls.populate_database()
+        if cls._retriever.get(hf_ds) is None:
+            index_dir = cls.ds_to_index_dir(hf_ds)
+            if not os.path.exists(index_dir):
+                cls._retriever = cls.populate_database(hf_ds)
             else:
-                logger.info(f"Cargando retriever desde '{INDEX_DIR}'...")
-                cls._retriever = bm25s.BM25.load(INDEX_DIR, load_corpus=True)
+                logger.info(f"Cargando retriever desde '{index_dir}'...")
+                cls._retriever = bm25s.BM25.load(index_dir, load_corpus=True)
         return cls._retriever
 
     @classmethod
-    def search(cls, query, k=5):
+    def search_tool(
+        cls,
+        query: str,
+        k: int = 5
+    ) -> List[Tuple[int, float]]:
         """
-        Realiza una búsqueda en el índice.
+        Search the indexed corpus for the most relevant documents.
 
-        Parámetros:
-            query (str): Texto a buscar.
-            k (int): Número de documentos a devolver (por defecto 5).
+        This method:
+          1. Tokenizes the query string using the same preprocessing as the corpus.
+          2. Retrieves the top `k` matching documents based on BM25 scores.
+          3. Returns each match as a tuple containing:
+             - A dictionary with:
+               - "id" (Any): Identifier of the document in the dataset.
+               - "text" (str): Full text content of the document.
+             - The BM25 relevance score as a float.
 
-        Retorna:
-            list[tuple[str, float]]: Lista de (documento, score)
+        Args:
+            query (str): The natural language search query.
+            k (int, optional): The maximum number of results to return.
+                Defaults to 5.
+
+        Returns:
+            List[Tuple[Dict[str, Any], float]]:
+                A list of `(document_metadata, score)` tuples.
+                `document_metadata` has keys:
+                    - "id" (Any): Document identifier.
+                    - "text" (str): Document's text content.
+                The `score` is the BM25 relevance score (higher means more relevant).
+
+        Example:
+            >>> results = search_tool("machine learning models", k=2)
+            >>> results
+            [
+                ({"id": 42, "text": "Intro to Machine Learning..."}, 5.43),
+                ({"id": 7, "text": "Deep learning architectures..."}, 4.98)
+            ]
         """
+
         retriever = cls.load_retriever()
 
         query_tokens = bm25s.tokenize(query, stopwords="en")

@@ -14,7 +14,7 @@ format_isort:
 format_code: format_black format_isort
 	@echo "All code formatting completed!"
 
-populate_db:
-	python -c 'from ragent.data.sources.bm25s import BM25Client; BM25Client.load_retriever()'
+populate_bm25s_devdocs:
+	python -c 'from ragent.data.sources.bm25s import BM25Client; BM25Client.load_retriever("nampdn-ai/devdocs.io")'
 
 .PHONY: default load_people_fixtures load_deployedapps_fixtures load_fixtures reset_db reset_and_load_fixtures format_black format_isort format_code
