@@ -49,3 +49,15 @@ def get_retriever():
     logger.info(f"Loading retriever from '{INDEX_DIR}'...")
     retriever = bm25s.BM25.load(INDEX_DIR, load_corpus=True)
     return retriever
+
+if __name__ == "__main__":
+    populate_database()
+    ret = get_retriever()
+
+    query = "What is the way for using a Django Serializer"
+    query_tokens = bm25s.tokenize(query)
+
+    results, scores = ret.retrieve(query_tokens, k=2, corpus=ret.corpus)
+    for i in range(results.shape[1]):
+        doc, score = results[0, i], scores[0, i]
+        print(f"Rank {i+1} (score: {score:.2f}): {doc}")
