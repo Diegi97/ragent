@@ -5,7 +5,7 @@ from datasets import Dataset
 logger = logging.getLogger(__name__)
 
 
-from ragent.lib.data.pipelines.nampdn_ai_devdocs_io.utils import is_latest_label, \
+from ragent.data.pipelines.nampdn_ai_devdocs_io.utils import is_latest_label, \
     compute_latest_version_map_from_dataset
 
 

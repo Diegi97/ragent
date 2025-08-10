@@ -208,4 +208,4 @@ __marimo__/
 *.ipynb
 .idea/
 
-data/bm25s_index/
+bm25s_corpus_index

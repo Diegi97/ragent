@@ -3,11 +3,11 @@ import bm25s
 import logging
 from datasets import load_dataset
 from ragent.config import HUGGING_FACE_DATASET, HF_TOKEN
-from ragent.lib.data.pipelines import get_pipeline_run
+from ragent.data.pipelines import get_pipeline_run, dataset_to_module_name
 
 logger = logging.getLogger(__name__)
 
-INDEX_DIR = f"data/bm25s_index/{HUGGING_FACE_DATASET}"
+INDEX_DIR = f"data/{dataset_to_module_name(HUGGING_FACE_DATASET)}/bm25s_corpus_index/"
 
 
 class BM25Client:
