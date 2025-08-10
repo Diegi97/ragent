@@ -15,6 +15,6 @@ format_code: format_black format_isort
 	@echo "All code formatting completed!"
 
 populate_db:
-	python -c 'from ragent.lib.bm25s import populate_database; populate_database()'
+	python -c 'from ragent.lib.data.sources.bm25s import BM25Client; BM25Client.load_retriever()'
 
 .PHONY: default load_people_fixtures load_deployedapps_fixtures load_fixtures reset_db reset_and_load_fixtures format_black format_isort format_code
