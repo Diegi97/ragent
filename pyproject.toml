@@ -12,6 +12,7 @@ dependencies = [
     "skypilot>=0.10.1",
     "python-dotenv>=1.1.1",
     "verifiers>=0.1.2.post0",
+    "colorlog>=6.9.0",
 ]
 
 [dependency-groups]
