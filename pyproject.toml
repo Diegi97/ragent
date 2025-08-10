@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "openai>=1.99.6",
+    "skypilot>=0.10.1",
     "verifiers>=0.1.2.post0",
 ]
 
