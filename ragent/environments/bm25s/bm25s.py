@@ -8,10 +8,10 @@ from ragent.reward_funcs.llm_judge_prompt import LLM_JUDGE_PROMPT, JUDGE_RESPONS
 from ragent.data.prompts.search_engine import SEARCH_ENGINE_RESPONSE_PARSER, SEARCH_ENGINE_PROMPT
 
 
-def load_environment(hf_dataset: str, llm_name_judge: str = "google/gemini-2.5-flash", **kwargs) -> vf.Environment:
+def load_environment(hf_dataset: str = "nampdn-ai/devdocs.io", llm_name_judge: str = "google/gemini-2.5-flash", **kwargs) -> vf.Environment:
 
     bm25_client = BM25Client(hf_dataset)
-    qas_dataset = load_dataset(f"data/{safe_ds_name(hf_dataset)}/", data_files="qas.json")
+    qas_dataset = load_dataset(f"data/{safe_ds_name(hf_dataset)}/", data_files="qas.json", split="train")
 
     # openrouter client
     client = OpenAI(
@@ -29,7 +29,7 @@ def load_environment(hf_dataset: str, llm_name_judge: str = "google/gemini-2.5-f
     def grade_reward(prompt, completion, answer, state, **kwargs):
         judge_response = rubric.judge(prompt, completion, answer, state, **kwargs)
         judge_response = JUDGE_RESPONSE_PARSER.parse_answer(judge_response)
-        return 1.0 if judge_response["judgment"] == "CORRECT" else 0.0
+        return 1.0 if judge_response == "CORRECT" else 0.0
 
     rubric.add_reward_func(grade_reward, 0.8)
     rubric.add_reward_func(SEARCH_ENGINE_RESPONSE_PARSER.get_format_reward_func(), 0.2)

@@ -209,3 +209,5 @@ __marimo__/
 .idea/
 
 bm25s_corpus_index
+results/
+reports/
