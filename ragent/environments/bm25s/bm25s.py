@@ -8,12 +8,10 @@ from ragent.reward_funcs.llm_judge_prompt import LLM_JUDGE_PROMPT, JUDGE_RESPONS
 from ragent.data.prompts.search_engine import SEARCH_ENGINE_RESPONSE_PARSER, SEARCH_ENGINE_PROMPT
 
 
-def load_environment(**kwargs) -> vf.Environment:
-    hf_ds = kwargs["hf_ds"]
-    llm_name_judge = kwargs["llm_name_judge"]
+def load_environment(hf_dataset: str, llm_name_judge: str = "google/gemini-2.5-flash", **kwargs) -> vf.Environment:
 
-    bm25_client = BM25Client(hf_ds)
-    qas_dataset = load_dataset(f"data/{safe_ds_name(hf_ds)}/", data_files="qas.json")
+    bm25_client = BM25Client(hf_dataset)
+    qas_dataset = load_dataset(f"data/{safe_ds_name(hf_dataset)}/", data_files="qas.json")
 
     # openrouter client
     client = OpenAI(

@@ -6,14 +6,12 @@ import logging
 from datasets import load_dataset
 from ragent.config import HF_TOKEN
 from ragent.data.pipelines import get_pipeline_run, safe_ds_name
-from ragent.data.prompts.search_engine import prompt as search_engine_prompt
 
 logger = logging.getLogger(__name__)
 
 
 class BM25Client:
     _retrievers = {}
-    prompt = search_engine_prompt
 
     def __init__(self, hf_ds):
         self.hf_ds = hf_ds
