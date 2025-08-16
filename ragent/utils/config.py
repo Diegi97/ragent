@@ -4,6 +4,25 @@ from typing import Optional
 import verifiers as vf
 
 
+ENDPOINTS = {
+    "gemini-2.5-flash": {
+        "model": "google/gemini-2.5-flash",
+        "url": "https://openrouter.ai/api/v1",
+        "key": "OPENAI_API_KEY",
+    },
+    "gemini-2.5-flash-lite": {
+        "model": "google/gemini-2.5-flash-lite",
+        "url": "https://openrouter.ai/api/v1",
+        "key": "OPENAI_API_KEY",
+    },
+    "qwen3-a22b": {
+        "model": "qwen/qwen3-235b-a22b-2507",
+        "url": "https://openrouter.ai/api/v1",
+        "key": "OPENAI_API_KEY",
+    },
+}
+
+
 @dataclass
 class TrainConfig:
     # General / environment
