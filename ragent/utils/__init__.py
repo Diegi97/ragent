@@ -2,7 +2,8 @@ import os
 
 from dotenv import load_dotenv
 
-from ragent.config.logging import configure_logging
+from ragent.utils.logging import configure_logging
+from ragent.utils.config import TrainConfig, prepare_args
 
 load_dotenv()
 
