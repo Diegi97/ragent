@@ -290,7 +290,7 @@
     }
   </style>
 </head>
-<body class="theme-dark">
+<body class="theme-light">
   <div class="container">
     <header>
       <div class="file-picker">
@@ -405,8 +405,9 @@
       bodyEl.classList.add('theme-light');
       themeSelect.value = 'light';
     } else {
-      bodyEl.classList.add('theme-dark');
-      themeSelect.value = 'dark';
+      bodyEl.classList.add('theme-light');
+      bodyEl.classList.remove('theme-dark');
+      themeSelect.value = 'light';
     }
     themeSelect.addEventListener('change', () => {
       if (themeSelect.value === 'light') {

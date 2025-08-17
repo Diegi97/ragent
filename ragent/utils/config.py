@@ -29,6 +29,11 @@ ENDPOINTS = {
         "url": "https://openrouter.ai/api/v1",
         "key": "OPENAI_API_KEY",
     },
+    "gpt-4.1-nano": {
+        "model": "openai/gpt-4.1-nano",
+        "url": "https://openrouter.ai/api/v1",
+        "key": "OPENAI_API_KEY",
+    },
     "deepseek-v3": {
         "model": "deepseek/deepseek-chat-v3-0324",
         "url": "https://openrouter.ai/api/v1",
