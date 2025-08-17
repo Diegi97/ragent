@@ -328,6 +328,11 @@
           <div class="metric">Grade Reward: <b id="gradeRewardVal">-</b></div>
           <div class="metric">Format Reward Func: <b id="formatRewardFuncVal">-</b></div>
         </div>
+        <div class="metrics" style="margin-top:8px">
+          <div class="metric">Mean Reward: <b id="rewardMeanVal">-</b></div>
+          <div class="metric">Mean Grade Reward: <b id="gradeRewardMeanVal">-</b></div>
+          <div class="metric">Mean Format Reward Func: <b id="formatRewardFuncMeanVal">-</b></div>
+        </div>
       </div>
 
       <div class="card">
@@ -386,6 +391,9 @@
     const rewardVal = document.getElementById('rewardVal');
     const gradeRewardVal = document.getElementById('gradeRewardVal');
     const formatRewardFuncVal = document.getElementById('formatRewardFuncVal');
+    const rewardMeanVal = document.getElementById('rewardMeanVal');
+    const gradeRewardMeanVal = document.getElementById('gradeRewardMeanVal');
+    const formatRewardFuncMeanVal = document.getElementById('formatRewardFuncMeanVal');
 
     const taskVal = document.getElementById('taskVal');
     const functionsList = document.getElementById('functionsList');
@@ -445,6 +453,8 @@
         }
         emptyState.classList.add('hidden');
         content.classList.remove('hidden');
+        // compute means once on load
+        setMeans();
         render();
       };
       reader.readAsText(file);
@@ -512,6 +522,26 @@
       if (v === null || v === undefined || Number.isNaN(v)) return '-';
       if (typeof v === 'number') return v.toFixed(6).replace(/\.0+$/, '');
       return String(v);
+    }
+
+    function computeMean(arr) {
+      if (!Array.isArray(arr)) return null;
+      let sum = 0;
+      let count = 0;
+      for (const v of arr) {
+        let num = typeof v === 'number' ? v : Number(v);
+        if (Number.isFinite(num)) { sum += num; count++; }
+      }
+      return count > 0 ? sum / count : null;
+    }
+
+    function setMeans() {
+      const mReward = computeMean(data && data.reward);
+      const mGrade = computeMean(data && data.grade_reward);
+      const mFormat = computeMean(data && data.format_reward_func);
+      rewardMeanVal.textContent = formatMaybeNumber(mReward);
+      gradeRewardMeanVal.textContent = formatMaybeNumber(mGrade);
+      formatRewardFuncMeanVal.textContent = formatMaybeNumber(mFormat);
     }
 
     function renderFunctions(infoEntry) {
