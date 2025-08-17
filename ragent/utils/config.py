@@ -3,7 +3,6 @@ from typing import Optional
 
 import verifiers as vf
 
-
 ENDPOINTS = {
     "gemini-2.5-flash": {
         "model": "google/gemini-2.5-flash",
@@ -17,6 +16,21 @@ ENDPOINTS = {
     },
     "qwen3-a22b": {
         "model": "qwen/qwen3-235b-a22b-2507",
+        "url": "https://openrouter.ai/api/v1",
+        "key": "OPENAI_API_KEY",
+    },
+    "gpt-4.1": {
+        "model": "openai/gpt-4.1",
+        "url": "https://openrouter.ai/api/v1",
+        "key": "OPENAI_API_KEY",
+    },
+    "gpt-4.1-mini": {
+        "model": "openai/gpt-4.1-mini",
+        "url": "https://openrouter.ai/api/v1",
+        "key": "OPENAI_API_KEY",
+    },
+    "deepseek-v3": {
+        "model": "deepseek/deepseek-chat-v3-0324",
         "url": "https://openrouter.ai/api/v1",
         "key": "OPENAI_API_KEY",
     },

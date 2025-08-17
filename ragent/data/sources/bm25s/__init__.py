@@ -126,12 +126,12 @@ class BM25Client:
 
         return self.format_search_results(results)
 
-    def read_tool(self, doc_id) -> Dict[str, str] | str:
+    def read_tool(self, doc_id: int) -> Dict[str, str] | str:
         """
         Retrieve the full document from the indexed corpus by its ID.
 
         Args:
-            doc_id (Any): The unique identifier of the document.
+            doc_id (int): The unique identifier of the document.
 
         Returns:
             Dict[str, str]: A dictionary containing all available fields
