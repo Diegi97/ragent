@@ -150,5 +150,3 @@ def prepare_args(cfg: TrainConfig):
     args.per_device_eval_batch_size = cfg.per_device_eval_batch_size
 
     return args
-
-

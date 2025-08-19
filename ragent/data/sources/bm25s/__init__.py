@@ -1,11 +1,12 @@
+import logging
 import os
-from typing import List, Dict
+from typing import Dict, List
 
 import bm25s
-import logging
 from datasets import load_dataset
-from ragent.utils import HF_TOKEN
+
 from ragent.data.pipelines import get_pipeline_run, safe_ds_name
+from ragent.utils import HF_TOKEN
 
 logger = logging.getLogger(__name__)
 
@@ -66,18 +67,12 @@ class BM25Client:
             preview_words = text.split()[:20]
             preview = " ".join(preview_words) + "..." if preview_words else ""
 
-            output.append({
-                "id": doc.get("id"),
-                "title": doc.get("title", ""),
-                "preview": preview
-            })
+            output.append(
+                {"id": doc.get("id"), "title": doc.get("title", ""), "preview": preview}
+            )
         return output
 
-    def search_tool(
-        self,
-        query: str,
-        k: int = 5
-    ) -> List[Dict[str, str]]:
+    def search_tool(self, query: str, k: int = 5) -> List[Dict[str, str]]:
         """
         Search the indexed corpus for the most relevant documents.
 
@@ -157,6 +152,7 @@ class BM25Client:
                 return doc
 
         return f"Error: Document with id '{doc_id}' not found in corpus."
+
 
 if __name__ == "__main__":
     res = BM25Client.search_tool("What is the way for using a Django Serializer?")
