@@ -10,7 +10,7 @@ fi
 MODEL=${1:-gpt-4.1-mini}
 ENV=${2:-bm25s} # Extracting environment from "ragent.environments.bm25s"
 echo "Running evaluation for $MODEL"
-uv run vf-eval ragent.environments.${ENV} --endpoints-path ragent/utils/config.py --model $MODEL --max-tokens 32768 --save-dataset --save-path "results/${MODEL}_${ENV}/"
+uv run vf-eval ragent.environments.${ENV} --endpoints-path ragent/config/endpoints.py --model $MODEL --max-tokens 32768 --save-dataset --save-path "results/${MODEL}_${ENV}/"
 
 # This saves the dataset in a format that can be used by the visualizer index.html
 cat <<EOF | env MODEL="${MODEL}" ENV="${ENV}" uv run --with datasets -

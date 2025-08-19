@@ -6,7 +6,7 @@ import bm25s
 from datasets import load_dataset
 
 from ragent.data.pipelines import get_pipeline_run, safe_ds_name
-from ragent.utils import HF_TOKEN
+from ragent.config import HF_TOKEN
 
 logger = logging.getLogger(__name__)
 
