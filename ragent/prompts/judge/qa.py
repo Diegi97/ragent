@@ -1,6 +1,6 @@
 import verifiers as vf
 
-LLM_JUDGE_PROMPT = """You are tasked with evaluating the correctness of an AI-generated response to a given question. Your goal is to determine whether the generated response is correct according to the provided ground truth answer.
+PROMPT = """You are tasked with evaluating the correctness of an AI-generated response to a given question. Your goal is to determine whether the generated response is correct according to the provided ground truth answer.
 
 Here is the question:
 <question>
@@ -60,7 +60,7 @@ Write your explanation inside <explanation> tags, followed by your judgment (eit
 
 Your final output should only include the explanation and judgment tags, without any additional text or repetition of the input."""
 
-JUDGE_RESPONSE_PARSER = vf.XMLParser(
+RESPONSE_PARSER = vf.XMLParser(
     fields=["explanation", "judgment"],
     answer_field="judgment",
 )
