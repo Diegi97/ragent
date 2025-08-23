@@ -1,19 +1,18 @@
+import logging
 import os
-from typing import List, Dict
+from typing import Dict, List
 
 import bm25s
-import logging
 from datasets import load_dataset
-from ragent.config import HF_TOKEN
+
 from ragent.data.pipelines import get_pipeline_run, safe_ds_name
-from ragent.data.prompts.search_engine import prompt as search_engine_prompt
+from ragent.config import HF_TOKEN
 
 logger = logging.getLogger(__name__)
 
 
 class BM25Client:
     _retrievers = {}
-    prompt = search_engine_prompt
 
     def __init__(self, hf_ds):
         self.hf_ds = hf_ds
@@ -68,18 +67,12 @@ class BM25Client:
             preview_words = text.split()[:20]
             preview = " ".join(preview_words) + "..." if preview_words else ""
 
-            output.append({
-                "id": doc.get("id"),
-                "title": doc.get("title", ""),
-                "preview": preview
-            })
+            output.append(
+                {"id": doc.get("id"), "title": doc.get("title", ""), "preview": preview}
+            )
         return output
 
-    def search_tool(
-        self,
-        query: str,
-        k: int = 5
-    ) -> List[Dict[str, str]]:
+    def search_tool(self, query: str, k: int = 5) -> List[Dict[str, str]]:
         """
         Search the indexed corpus for the most relevant documents.
 
@@ -128,12 +121,12 @@ class BM25Client:
 
         return self.format_search_results(results)
 
-    def read_tool(self, doc_id) -> Dict[str, str] | str:
+    def read_tool(self, doc_id: int) -> Dict[str, str] | str:
         """
         Retrieve the full document from the indexed corpus by its ID.
 
         Args:
-            doc_id (Any): The unique identifier of the document.
+            doc_id (int): The unique identifier of the document.
 
         Returns:
             Dict[str, str]: A dictionary containing all available fields
@@ -159,6 +152,7 @@ class BM25Client:
                 return doc
 
         return f"Error: Document with id '{doc_id}' not found in corpus."
+
 
 if __name__ == "__main__":
     res = BM25Client.search_tool("What is the way for using a Django Serializer?")

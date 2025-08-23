@@ -5,19 +5,22 @@ from datasets import Dataset
 logger = logging.getLogger(__name__)
 
 
-from ragent.data.pipelines.nampdn_ai_devdocs_io.utils import is_latest_label, \
-    compute_latest_version_map_from_dataset
+from ragent.data.pipelines.nampdn_ai_devdocs_io.utils import (
+    compute_latest_version_map_from_dataset, is_latest_label)
 
 
-def keep_latest_versions(dataset, language_column = "language"):
-    base_to_max = compute_latest_version_map_from_dataset(dataset, language_column=language_column)
+def keep_latest_versions(dataset, language_column="language"):
+    base_to_max = compute_latest_version_map_from_dataset(
+        dataset, language_column=language_column
+    )
 
     def _predicate(example):
         return is_latest_label(str(example[language_column]), base_to_max)
 
     return dataset.filter(_predicate)
 
-def filter_by_max_word_count(dataset, text_column = "text", max_words = 15000):
+
+def filter_by_max_word_count(dataset, text_column="text", max_words=15000):
     def _should_keep(example):
         value = example.get(text_column) if isinstance(example, dict) else None
         if value is None:
@@ -31,7 +34,8 @@ def filter_by_max_word_count(dataset, text_column = "text", max_words = 15000):
 
     return dataset.filter(_should_keep)
 
-def add_incrementing_id(dataset, id_column = "id", id_start = 0):
+
+def add_incrementing_id(dataset, id_column="id", id_start=0):
     ids = list(range(id_start, id_start + len(dataset)))
     return dataset.add_column(id_column, ids)
 

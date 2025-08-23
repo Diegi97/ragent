@@ -8,11 +8,11 @@ dependencies = [
     "black>=25.1.0",
     "bm25s>=0.2.13",
     "isort>=6.0.1",
-    "openai>=1.99.6",
     "skypilot>=0.10.1",
     "python-dotenv>=1.1.1",
-    "verifiers>=0.1.2.post0",
+    "verifiers[all]>=0.1.2.post0",
     "colorlog>=6.9.0",
+    "tyro>=0.9.28",
 ]
 
 [dependency-groups]
