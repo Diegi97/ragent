@@ -13,6 +13,7 @@ dependencies = [
     "verifiers[all]>=0.1.2.post0",
     "colorlog>=6.9.0",
     "tyro>=0.9.28",
+    "backoff>=2.2.1",
 ]
 
 [dependency-groups]
