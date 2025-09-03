@@ -5,8 +5,8 @@ from typing import Dict, List
 import bm25s
 from datasets import load_dataset
 
-from ragent.data.pipelines import get_pipeline_run, safe_ds_name
 from ragent.config import HF_TOKEN
+from ragent.data.pipelines import get_pipeline_run, safe_ds_name
 
 logger = logging.getLogger(__name__)
 

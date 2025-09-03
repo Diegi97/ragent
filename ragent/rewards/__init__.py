@@ -4,7 +4,8 @@ from typing import Any, Dict, List, Union
 import backoff
 
 from ragent.config import JUDGE_CLIENT, JUDGE_MODEL
-from ragent.prompts.agent.search_engine import RESPONSE_PARSER as AGENT_RESPONSE_PARSER
+from ragent.prompts.agent.search_engine import \
+    RESPONSE_PARSER as AGENT_RESPONSE_PARSER
 from ragent.prompts.judge.qa import PROMPT as JUDGE_PROMPT
 from ragent.prompts.judge.qa import RESPONSE_PARSER as JUDGE_RESPONSE_PARSER
 from ragent.utils import question_from_prompt
@@ -18,19 +19,20 @@ logger = logging.getLogger(__name__)
 
 MAX_JUDGE_CALL_TRIES = 5
 
+
 @safe_execution(
     error_message=f"JUDGE API CALL FAILED AFTER ALL RETRIES! ({MAX_JUDGE_CALL_TRIES})",
     default_return_value="",
     additional_info_builder=lambda judge_prompt, *_: {
         "Judge prompt length": f"{len(judge_prompt)} characters"
-    }
+    },
 )
 @backoff.on_exception(
     backoff.expo,
     Exception,
     max_tries=MAX_JUDGE_CALL_TRIES,
     jitter=backoff.random_jitter,
-    giveup=lambda e: False # Always retry on any exception - be very robust for training
+    giveup=lambda e: False,  # Always retry on any exception - be very robust for training
 )
 def judge_api_call(judge_prompt: str) -> str:
     """Make the judge API call with backoff for any errors - bulletproof for training."""
@@ -46,12 +48,11 @@ def judge_api_call(judge_prompt: str) -> str:
 
 # --- Reward Functions ---
 
+
 @safe_execution(
     error_message="JUDGE RESPONSE PARSING FAILED!",
     default_return_value=0.0,
-    additional_info_builder=lambda content, state, *_: {
-        "Raw content": repr(content)
-    }
+    additional_info_builder=lambda content, state, *_: {"Raw content": repr(content)},
 )
 def parse_judge_response(content: str, state: Dict[str, Any]) -> float:
     """Parse the judge's response and convert to a reward score."""
@@ -65,7 +66,7 @@ def judge_reward(
     completion: str,
     answer: str,
     state: Dict[str, Any],
-    **kwargs
+    **kwargs,
 ) -> float:
     """Judge correctness via an external model (never let parsing errors break training)."""
     question = question_from_prompt(prompt)

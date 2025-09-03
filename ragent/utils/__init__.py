@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Union
 
+
 def question_from_prompt(prompt: Union[str, List[Dict[str, Any]]]) -> str:
     """Extract the question from various prompt formats."""
     if isinstance(prompt, list):

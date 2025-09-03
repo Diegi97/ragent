@@ -1,14 +1,15 @@
 import logging
-from typing import Dict, Optional, Any
+from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
+
 
 def log_reward_error(
     title: str,
     error: Exception,
     additional_info: Optional[Dict[str, str]] = None,
     message: Optional[str] = None,
-    separator_length: int = 60
+    separator_length: int = 60,
 ) -> None:
     """Centralized error logging function with consistent formatting."""
     separator = "=" * separator_length
@@ -24,18 +25,22 @@ def log_reward_error(
         logger.error(message)
     logger.error(separator)
 
+
 import functools
+
 # ... other imports from your original code
+
 
 def safe_execution(
     error_message: str,
     default_return_value: Any = 0.0,
-    additional_info_builder: callable = None
+    additional_info_builder: callable = None,
 ):
     """
     A decorator to safely execute a function, logging errors and returning a
     default value on failure.
     """
+
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -51,8 +56,10 @@ def safe_execution(
                     error_message,
                     error=e,
                     additional_info=info,
-                    message=f"Returning {default_return_value} to continue training..."
+                    message=f"Returning {default_return_value} to continue training...",
                 )
                 return default_return_value
+
         return wrapper
+
     return decorator
