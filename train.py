@@ -1,7 +1,7 @@
 import tyro
 import verifiers as vf
 
-from ragent.utils import TrainConfig, prepare_args
+from ragent.config import TrainConfig, prepare_args
 
 """
 # Quick eval
