@@ -1,0 +1,591 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>QA Pair Visualizer</title>
+        <style>
+            :root {
+                color-scheme: light dark;
+                --bg: #0f172a;
+                --surface: #111c33;
+                --surface-alt: #0b1224;
+                --text: #f8fafc;
+                --muted: #94a3b8;
+                --accent: #38bdf8;
+                --border: #1e293b;
+            }
+
+            @media (prefers-color-scheme: light) {
+                :root {
+                    --bg: #f8fafc;
+                    --surface: #ffffff;
+                    --surface-alt: #f1f5f9;
+                    --text: #0f172a;
+                    --muted: #475569;
+                    --accent: #0ea5e9;
+                    --border: #e2e8f0;
+                }
+            }
+
+            * {
+                box-sizing: border-box;
+            }
+
+            .hidden {
+                display: none !important;
+            }
+
+            body {
+                margin: 0;
+                min-height: 100vh;
+                background: var(--bg);
+                color: var(--text);
+                font-family:
+                    "Inter",
+                    "Segoe UI",
+                    system-ui,
+                    -apple-system,
+                    sans-serif;
+                display: flex;
+                justify-content: center;
+            }
+
+            .app {
+                width: min(900px, 100%);
+                padding: 24px clamp(16px, 4vw, 40px) 32px;
+                display: flex;
+                flex-direction: column;
+                gap: 24px;
+            }
+
+            header {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                justify-content: space-between;
+                gap: 16px;
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: 16px;
+                padding: 16px 20px;
+                box-shadow: 0 8px 24px rgba(15, 23, 42, 0.25);
+            }
+
+            .file-picker {
+                display: inline-flex;
+                align-items: center;
+                gap: 12px;
+                cursor: pointer;
+                font-weight: 600;
+                color: var(--text);
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                padding: 10px 16px;
+                background: var(--surface-alt);
+                transition:
+                    border-color 0.2s ease,
+                    color 0.2s ease;
+            }
+
+            .file-picker:hover {
+                border-color: var(--accent);
+                color: var(--accent);
+            }
+
+            .file-picker input {
+                display: none;
+            }
+
+            .status {
+                flex: 1;
+                color: var(--muted);
+                font-size: 0.95rem;
+            }
+
+            main {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                gap: 24px;
+            }
+
+            .qa-card {
+                flex: 1;
+                background: var(--surface);
+                border-radius: 20px;
+                border: 1px solid var(--border);
+                padding: clamp(20px, 4vw, 36px);
+                display: flex;
+                flex-direction: column;
+                gap: 20px;
+                box-shadow: 0 16px 48px rgba(8, 13, 29, 0.35);
+                min-height: calc(100vh - 220px);
+            }
+
+            .qa-card.hidden {
+                display: none;
+            }
+
+            .meta {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                font-size: 0.95rem;
+                color: var(--muted);
+                border-bottom: 1px solid var(--border);
+                padding-bottom: 12px;
+            }
+
+            .meta strong {
+                font-weight: 600;
+                color: var(--text);
+            }
+
+            .question-block {
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+            }
+
+            .question-block h1 {
+                margin: 0;
+                font-size: clamp(1.6rem, 3vw, 2.05rem);
+                line-height: 1.25;
+                letter-spacing: -0.01em;
+            }
+
+            .dataset-meta {
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+                padding: 12px 16px;
+                border-radius: 14px;
+                border: 1px solid var(--border);
+                background: var(--surface-alt);
+            }
+
+            .dataset-meta-heading {
+                margin: 0;
+                font-size: 0.9rem;
+                font-weight: 600;
+                letter-spacing: 0.06em;
+                color: var(--muted);
+                text-transform: uppercase;
+            }
+
+            .meta-line {
+                font-size: 0.95rem;
+                color: var(--text);
+            }
+
+            .doc-indices {
+                max-height: 160px;
+                overflow-y: auto;
+                padding-right: 4px;
+                color: var(--muted);
+                font-size: 0.92rem;
+                line-height: 1.5;
+            }
+
+            .info-block {
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+            }
+
+            .info-item {
+                display: flex;
+                gap: 8px;
+                font-size: 0.95rem;
+            }
+
+            .info-key {
+                font-weight: 600;
+                color: var(--text);
+            }
+
+            .info-value {
+                color: var(--muted);
+            }
+
+            .alternates {
+                margin: 0;
+                padding-left: 20px;
+                color: var(--muted);
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+            }
+
+            .alternates li {
+                line-height: 1.4;
+            }
+
+            .answer-block {
+                background: var(--surface-alt);
+                border-radius: 16px;
+                border: 1px solid var(--border);
+                padding: clamp(16px, 3vw, 24px);
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+            }
+
+            .answer-block h2 {
+                margin: 0 0 12px;
+                font-size: 1rem;
+                font-weight: 600;
+                color: var(--muted);
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+            }
+
+            .answer-text {
+                white-space: pre-wrap;
+                line-height: 1.5;
+                font-size: 1.05rem;
+                color: var(--text);
+                overflow-y: auto;
+                padding-right: 4px;
+            }
+
+            .footer {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 12px;
+                color: var(--muted);
+                font-size: 0.95rem;
+            }
+
+            .error {
+                color: #f87171;
+            }
+
+            .instructions {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }
+
+            .key {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                min-width: 32px;
+                padding: 4px 8px;
+                border-radius: 6px;
+                border: 1px solid var(--border);
+                background: var(--surface-alt);
+                color: var(--text);
+                font-size: 0.85rem;
+                font-weight: 600;
+            }
+
+            @media (max-width: 720px) {
+                header {
+                    gap: 20px;
+                }
+
+                .meta {
+                    flex-direction: column;
+                    align-items: flex-start;
+                    gap: 4px;
+                }
+
+                .footer {
+                    flex-direction: column;
+                    align-items: flex-start;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="app">
+            <header>
+                <label class="file-picker">
+                    <span>Select QA JSON</span>
+                    <input
+                        type="file"
+                        id="file-input"
+                        accept=".json,application/json"
+                    />
+                </label>
+                <div id="status" class="status">No dataset loaded.</div>
+            </header>
+
+            <main>
+                <article id="qa-card" class="qa-card hidden" aria-live="polite">
+                    <div class="meta">
+                        <div id="progress">Item 0 / 0</div>
+                        <div id="item-id"></div>
+                    </div>
+
+                    <section class="question-block">
+                        <h2 id="primary-question"></h2>
+                        <ul id="alternate-questions" class="alternates"></ul>
+                    </section>
+
+                    <section id="dataset-meta" class="dataset-meta hidden">
+                        <p class="dataset-meta-heading">Source Documents</p>
+                        <div id="doc-count" class="meta-line"></div>
+                        <div id="question-count" class="meta-line"></div>
+                        <div>
+                            <p class="dataset-meta-heading">Doc Indices</p>
+                            <div id="doc-indices" class="doc-indices"></div>
+                        </div>
+                        <div id="info-container" class="hidden">
+                            <p class="dataset-meta-heading">Information</p>
+                            <div
+                                id="info-content"
+                                class="info-block"
+                            ></div>
+                        </div>
+                    </section>
+
+                    <section class="answer-block">
+                        <h2>Answer</h2>
+                        <div id="answer-text" class="answer-text"></div>
+                    </section>
+                </article>
+            </main>
+
+            <footer class="footer">
+                <div class="instructions">
+                    Navigate with
+                    <span class="key" aria-hidden="true">←</span>
+                    <span class="key" aria-hidden="true">→</span>
+                    arrow keys.
+                </div>
+                <div id="errors" role="alert"></div>
+            </footer>
+        </div>
+
+        <script>
+            const fileInput = document.getElementById("file-input");
+            const status = document.getElementById("status");
+            const qaCard = document.getElementById("qa-card");
+            const progress = document.getElementById("progress");
+            const itemId = document.getElementById("item-id");
+            const primaryQuestion = document.getElementById("primary-question");
+            const alternateQuestions = document.getElementById(
+                "alternate-questions",
+            );
+            const answerText = document.getElementById("answer-text");
+            const errors = document.getElementById("errors");
+            const datasetMeta = document.getElementById("dataset-meta");
+            const docCount = document.getElementById("doc-count");
+            const questionCount = document.getElementById("question-count");
+            const docIndices = document.getElementById("doc-indices");
+            const infoContainer =
+                document.getElementById("info-container");
+            const infoContent = document.getElementById("info-content");
+
+            let qaItems = [];
+            let currentIndex = 0;
+
+            function resetView(message, isError = false) {
+                qaItems = [];
+                currentIndex = 0;
+                qaCard.classList.add("hidden");
+                progress.textContent = "Item 0 / 0";
+                itemId.textContent = "";
+                primaryQuestion.textContent = "";
+                alternateQuestions.replaceChildren();
+                answerText.textContent = "";
+                errors.textContent = "";
+                docCount.textContent = "";
+                questionCount.textContent = "";
+                docIndices.textContent = "";
+                infoContent.replaceChildren();
+                infoContainer.classList.add("hidden");
+                datasetMeta.classList.add("hidden");
+                if (isError) {
+                    errors.textContent = message;
+                    errors.classList.add("error");
+                    status.textContent = "Failed to load dataset.";
+                } else {
+                    errors.classList.remove("error");
+                    status.textContent = message;
+                }
+            }
+
+            function renderItem(index) {
+                if (!qaItems.length) {
+                    resetView("No dataset loaded.");
+                    return;
+                }
+
+                const safeIndex = Math.max(
+                    0,
+                    Math.min(index, qaItems.length - 1),
+                );
+                currentIndex = safeIndex;
+                const item = qaItems[safeIndex] ?? {};
+
+                progress.textContent = `Item ${safeIndex + 1} / ${qaItems.length}`;
+                itemId.textContent =
+                    item.id !== undefined ? `ID: ${item.id}` : "";
+
+                // Handle both single question string and questions array
+                const mainQuestion =
+                    typeof item.question === "string"
+                        ? item.question
+                        : Array.isArray(item.questions) && item.questions.length
+                          ? item.questions[0]
+                          : "";
+                primaryQuestion.textContent = mainQuestion;
+
+                // Only show alternate questions if we have a questions array
+                alternateQuestions.replaceChildren();
+                if (
+                    Array.isArray(item.questions) &&
+                    item.questions.length > 1
+                ) {
+                    item.questions.slice(1).forEach((q, i) => {
+                        const li = document.createElement("li");
+                        li.textContent = q;
+                        li.setAttribute("data-index", i + 1);
+                        alternateQuestions.appendChild(li);
+                    });
+                }
+
+                const answer = item.answer ?? item.completion ?? "";
+                answerText.textContent =
+                    typeof answer === "string"
+                        ? answer
+                        : JSON.stringify(answer, null, 2);
+
+                const documents = Array.isArray(item.doc_indices)
+                    ? item.doc_indices
+                    : [];
+                const docsLabel =
+                    typeof item.num_docs === "number"
+                        ? `Documents: ${item.num_docs}`
+                        : documents.length
+                          ? `Documents: ${documents.length}`
+                          : "";
+                const questionLabel =
+                    typeof item.num_questions === "number"
+                        ? `Questions in group: ${item.num_questions}`
+                        : "";
+
+                docCount.textContent = docsLabel;
+                questionCount.textContent = questionLabel;
+
+                if (documents.length) {
+                    docIndices.textContent = documents.join(", ");
+                } else if (docsLabel || questionLabel) {
+                    docIndices.textContent = "No doc indices listed.";
+                } else {
+                    docIndices.textContent = "";
+                }
+
+                // Handle info
+                infoContent.replaceChildren();
+                infoContainer.classList.add("hidden");
+                if (item.info && typeof item.info === "object") {
+                    const entries = Object.entries(item.info);
+                    if (entries.length > 0) {
+                        entries.forEach(([key, value]) => {
+                            const metaItem = document.createElement("div");
+                            metaItem.className = "info-item";
+
+                            const keySpan = document.createElement("span");
+                            keySpan.className = "info-key";
+                            keySpan.textContent = key + ":";
+
+                            const valueSpan = document.createElement("span");
+                            valueSpan.className = "info-value";
+                            valueSpan.textContent =
+                                typeof value === "string"
+                                    ? value
+                                    : JSON.stringify(value);
+
+                            metaItem.appendChild(keySpan);
+                            metaItem.appendChild(valueSpan);
+                            infoContent.appendChild(metaItem);
+                        });
+                        infoContainer.classList.remove("hidden");
+                    }
+                }
+
+                if (
+                    docsLabel ||
+                    questionLabel ||
+                    documents.length ||
+                    !infoContainer.classList.contains("hidden")
+                ) {
+                    datasetMeta.classList.remove("hidden");
+                } else {
+                    datasetMeta.classList.add("hidden");
+                }
+
+                qaCard.classList.remove("hidden");
+                status.textContent = `Showing ${safeIndex + 1} of ${qaItems.length} items from ${status.dataset.filename || "dataset"}.`;
+                errors.textContent = "";
+            }
+
+            function loadDataset(text, filename = "dataset") {
+                let parsed;
+                try {
+                    parsed = JSON.parse(text);
+                } catch (err) {
+                    resetView("Unable to parse JSON file.", true);
+                    return;
+                }
+
+                const items = Array.isArray(parsed) ? parsed : parsed?.data;
+                if (!Array.isArray(items) || !items.length) {
+                    resetView("Dataset is empty or not an array.", true);
+                    return;
+                }
+
+                qaItems = items;
+                currentIndex = 0;
+                status.dataset.filename = filename;
+                status.textContent = `Loaded ${qaItems.length} items from ${filename}.`;
+                renderItem(0);
+            }
+
+            fileInput.addEventListener("change", (event) => {
+                const [file] = event.target.files;
+                if (!file) {
+                    resetView("File selection canceled.");
+                    return;
+                }
+                const reader = new FileReader();
+                reader.onload = () => {
+                    loadDataset(reader.result, file.name);
+                };
+                reader.onerror = () => {
+                    resetView("Could not read selected file.", true);
+                };
+                reader.readAsText(file);
+            });
+
+            document.addEventListener("keydown", (event) => {
+                if (!qaItems.length) return;
+
+                if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+                    event.preventDefault();
+                    const nextIndex =
+                        currentIndex >= qaItems.length - 1
+                            ? qaItems.length - 1
+                            : currentIndex + 1;
+                    renderItem(nextIndex);
+                } else if (
+                    event.key === "ArrowLeft" ||
+                    event.key === "ArrowUp"
+                ) {
+                    event.preventDefault();
+                    const prevIndex = currentIndex <= 0 ? 0 : currentIndex - 1;
+                    renderItem(prevIndex);
+                }
+            });
+
+            resetView("No dataset loaded.");
+        </script>
+    </body>
+</html>

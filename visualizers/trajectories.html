@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Trajectory Viewer</title>
+  <style>
+    /* Theme variables */
+    .theme-dark {
+      --bg: #0b1120;
+      --surface: #111827;
+      --muted: #475569;
+      --text: #e5e7eb;
+      --accent: #22d3ee;
+      --card-border: #1f2937;
+      --tool-call: #e0f2fe;
+      --tool-result: #ede9fe;
+      --assistant: #dcfce7;
+      --warning: #fef3c7;
+      --meta: #334155;
+      --chip-bg: #0b1225;
+      --pre-bg: #0b1225;
+      --metric-bg: #0f172a;
+      --details-bg: #0a0f1e;
+    }
+    .theme-light {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --muted: #64748b;
+      --text: #0f172a;
+      --accent: #0891b2;
+      --card-border: #e5e7eb;
+      --tool-call: #e0f2fe;
+      --tool-result: #ede9fe;
+      --assistant: #dcfce7;
+      --warning: #fff7ed;
+      --meta: #64748b;
+      --chip-bg: #f1f5f9;
+      --pre-bg: #f8fafc;
+      --metric-bg: #f8fafc;
+      --details-bg: #f8fafc;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      line-height: 1.45;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+    }
+
+    .file-picker {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--surface);
+      padding: 12px;
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+    }
+
+    .stats {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      background: var(--surface);
+      padding: 12px 16px;
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+    }
+
+    .theme-picker {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--surface);
+      padding: 12px;
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+    }
+
+    .nav {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    button.nav-btn {
+      background: transparent;
+      border: 1px solid var(--card-border);
+      color: var(--text);
+      padding: 8px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    button.nav-btn:hover {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 16px;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 14px;
+    }
+
+    .card h3 {
+      margin: 0 0 8px 0;
+      font-size: 1.05rem;
+    }
+
+    .metrics {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .metric {
+      background: var(--metric-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 8px 12px;
+      color: var(--muted);
+    }
+
+    .metric b { color: var(--text); }
+
+    .pill {
+      display: inline-block;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid var(--card-border);
+      background: var(--chip-bg);
+      margin: 4px 6px 0 0;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+
+    details {
+      border: 1px dashed var(--card-border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      background: var(--details-bg);
+    }
+
+    details > summary {
+      cursor: pointer;
+      color: var(--muted);
+    }
+
+    .pre {
+      white-space: pre-wrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      background: var(--pre-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      padding: 10px;
+      overflow-x: auto;
+    }
+
+    .messages {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .message {
+      border-radius: 10px;
+      border: 1px solid var(--card-border);
+      padding: 10px;
+    }
+
+    .message .meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+      color: var(--meta);
+      font-size: 0.85rem;
+    }
+
+    .message.tool-call { background: var(--tool-call); }
+    .message.tool-result { background: var(--tool-result); }
+    .message.assistant { background: var(--assistant); }
+
+    .hidden { display: none; }
+
+    .legend {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .legend .chip {
+      display: inline-flex;
+      gap: 6px;
+      align-items: center;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid var(--card-border);
+      background: var(--chip-bg);
+    }
+
+    .legend .swatch {
+      width: 14px;
+      height: 14px;
+      border-radius: 4px;
+      border: 1px solid #0003;
+      display: inline-block;
+    }
+
+    .swatch.tool-call { background: var(--tool-call); }
+    .swatch.tool-result { background: var(--tool-result); }
+    .swatch.assistant { background: var(--assistant); }
+
+    .warning {
+      background: var(--warning);
+      color: #92400e;
+      border: 1px solid #f59e0b33;
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+
+    .tool-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    .tool-chip {
+      cursor: default;
+    }
+
+    .small-btn {
+      display: inline-block;
+      margin-top: 6px;
+      padding: 4px 8px;
+      font-size: 0.85rem;
+      color: var(--text);
+      background: transparent;
+      border: 1px solid var(--card-border);
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .small-btn:hover { border-color: var(--accent); }
+
+    /* Tooltip */
+    #tooltip {
+      position: fixed;
+      z-index: 9999;
+      max-width: 60vw;
+      max-height: 50vh;
+      overflow: auto;
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+      display: none;
+      white-space: pre-wrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    }
+  </style>
+</head>
+<body class="theme-light">
+  <div class="container">
+    <header>
+      <div class="file-picker">
+        <label for="fileInput"><b>Load results.jsonl</b> <span class="muted">(+ optional metadata.json)</span>:</label>
+        <input id="fileInput" type="file" accept=".jsonl,.json,application/json" multiple />
+        <span id="fileName" class="muted"></span>
+      </div>
+
+      <div class="stats">
+        <div><b>Trajectory:</b> <span id="current">0</span>/<span id="total">0</span></div>
+        <div class="nav">
+          <button id="prevBtn" class="nav-btn" title="Previous (←)">&lt;</button>
+          <button id="nextBtn" class="nav-btn" title="Next (→)">&gt;</button>
+        </div>
+      </div>
+
+      <div class="theme-picker">
+        <label for="themeSelect"><b>Theme:</b></label>
+        <select id="themeSelect">
+          <option value="dark">Dark</option>
+          <option value="light">Light</option>
+        </select>
+      </div>
+    </header>
+
+    <div id="emptyState" class="card warning">
+      Choose a <b>results.jsonl</b> file to begin (and optional <b>metadata.json</b>). Each line should be a JSON object with keys like "prompt", "completion", "answer", "info", "task", "reward", "judge_reward", "format_reward".
+    </div>
+
+    <div id="content" class="grid hidden">
+      <div class="card">
+        <h3>Metrics</h3>
+        <div class="metrics">
+          <div class="metric">Reward: <b id="rewardVal">-</b></div>
+          <div class="metric">Judge Reward: <b id="judgeRewardVal">-</b></div>
+          <div class="metric">Format Reward Func: <b id="formatRewardVal">-</b></div>
+        </div>
+        <div class="metrics" style="margin-top:8px">
+          <div class="metric">Avg Reward: <b id="rewardMeanVal">-</b></div>
+          <div class="metric">Avg Judge Reward: <b id="judgeRewardMeanVal">-</b></div>
+          <div class="metric">Avg Format Reward Func: <b id="formatRewardMeanVal">-</b></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Task</h3>
+        <div id="taskVal" class="pre">-</div>
+      </div>
+
+      <div class="card">
+        <h3>Functions (from info)</h3>
+        <div id="functionsList"></div>
+      </div>
+
+      <div class="card">
+        <h3>Prompts</h3>
+        <details>
+          <summary>System prompt (click to expand)</summary>
+          <div id="systemPrompt" class="pre" style="margin-top:8px"></div>
+        </details>
+        <div style="height:8px"></div>
+        <div>
+          <div style="color: var(--muted); margin-bottom:6px;"><b>Initial user prompt</b></div>
+          <div id="userPrompt" class="pre"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Completions</h3>
+        <div class="legend" style="margin-bottom:8px;">
+          <span class="chip"><span class="swatch tool-call"></span> tool call</span>
+          <span class="chip"><span class="swatch tool-result"></span> tool result</span>
+          <span class="chip"><span class="swatch assistant"></span> assistant response</span>
+        </div>
+        <div id="completionList" class="messages"></div>
+      </div>
+
+      <div class="card">
+        <h3>Answer</h3>
+        <div id="answerVal" class="pre"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="tooltip"></div>
+
+  <script>
+    const fileInput = document.getElementById('fileInput');
+    const fileNameEl = document.getElementById('fileName');
+    const emptyState = document.getElementById('emptyState');
+    const content = document.getElementById('content');
+
+    const currentEl = document.getElementById('current');
+    const totalEl = document.getElementById('total');
+    const prevBtn = document.getElementById('prevBtn');
+    const nextBtn = document.getElementById('nextBtn');
+
+    const rewardVal = document.getElementById('rewardVal');
+    const judgeRewardVal = document.getElementById('judgeRewardVal');
+    const formatRewardVal = document.getElementById('formatRewardVal');
+    const rewardMeanVal = document.getElementById('rewardMeanVal');
+    const judgeRewardMeanVal = document.getElementById('judgeRewardMeanVal');
+    const formatRewardMeanVal = document.getElementById('formatRewardMeanVal');
+
+    const taskVal = document.getElementById('taskVal');
+    const functionsList = document.getElementById('functionsList');
+
+    const systemPrompt = document.getElementById('systemPrompt');
+    const userPrompt = document.getElementById('userPrompt');
+
+    const completionList = document.getElementById('completionList');
+    const answerVal = document.getElementById('answerVal');
+
+    // Theme
+    const themeSelect = document.getElementById('themeSelect');
+    const bodyEl = document.body;
+    const savedTheme = localStorage.getItem('traj_theme');
+    if (savedTheme === 'light') {
+      bodyEl.classList.remove('theme-dark');
+      bodyEl.classList.add('theme-light');
+      themeSelect.value = 'light';
+    } else {
+      bodyEl.classList.add('theme-light');
+      bodyEl.classList.remove('theme-dark');
+      themeSelect.value = 'light';
+    }
+    themeSelect.addEventListener('change', () => {
+      if (themeSelect.value === 'light') {
+        bodyEl.classList.remove('theme-dark');
+        bodyEl.classList.add('theme-light');
+      } else {
+        bodyEl.classList.remove('theme-light');
+        bodyEl.classList.add('theme-dark');
+      }
+      localStorage.setItem('traj_theme', themeSelect.value);
+    });
+
+    let rows = [];
+    let meta = null;
+    let total = 0;
+    let idx = 0;
+
+    fileInput.addEventListener('change', async (e) => {
+      const files = Array.from(e.target.files || []);
+      if (files.length === 0) return;
+      const resultsFile = files.find(f => f.name.endsWith('.jsonl') || f.name.includes('results.jsonl')) || files[0];
+      const metadataFile = files.find(f => f.name === 'metadata.json' || (f.name.endsWith('.json') && f.name.includes('metadata')));
+      if (!resultsFile) {
+        alert('Please select a results.jsonl file.');
+        return;
+      }
+      fileNameEl.textContent = resultsFile.name + (metadataFile ? `, ${metadataFile.name}` : '');
+
+      function readText(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result);
+          reader.onerror = () => reject(reader.error || new Error('Failed to read file'));
+          reader.readAsText(file);
+        });
+      }
+
+      try {
+        const [resultsText, metaText] = await Promise.all([
+          readText(resultsFile),
+          metadataFile ? readText(metadataFile) : Promise.resolve(null)
+        ]);
+
+        const lines = String(resultsText).split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        const parsed = [];
+        for (let i = 0; i < lines.length; i++) {
+          try {
+            parsed.push(JSON.parse(lines[i]));
+          } catch (err) {
+            throw new Error(`Failed to parse JSONL at line ${i + 1}: ${err.message}`);
+          }
+        }
+        rows = parsed;
+        meta = metaText ? JSON.parse(metaText) : null;
+
+        idx = 0;
+        total = rows.length;
+        totalEl.textContent = String(total);
+        if (total === 0) {
+          alert('No trajectories found in results.jsonl');
+          return;
+        }
+        emptyState.classList.add('hidden');
+        content.classList.remove('hidden');
+        // compute means once on load
+        setMeans();
+        render();
+      } catch (err) {
+        alert(err.message || String(err));
+      }
+    });
+
+    prevBtn.addEventListener('click', () => {
+      if (!Array.isArray(rows) || rows.length === 0) return;
+      idx = (idx - 1 + total) % total;
+      render();
+    });
+
+    nextBtn.addEventListener('click', () => {
+      if (!Array.isArray(rows) || rows.length === 0) return;
+      idx = (idx + 1) % total;
+      render();
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (!Array.isArray(rows) || rows.length === 0) return;
+      if (e.key === 'ArrowLeft') prevBtn.click();
+      if (e.key === 'ArrowRight') nextBtn.click();
+    });
+
+    function inferTotal(d) {
+      if (!d || typeof d !== 'object') return 0;
+      const fields = ['prompt','completion','answer','info','task','reward','grade_reward','format_reward'];
+      let m = 0;
+      for (const f of fields) {
+        const val = d[f];
+        if (Array.isArray(val)) m = Math.max(m, val.length);
+      }
+      return m;
+    }
+
+    function render() {
+      currentEl.textContent = String(idx + 1);
+      const row = rows[idx] || {};
+
+      // Metrics
+      rewardVal.textContent = formatMaybeNumber(row && row.reward);
+      judgeRewardVal.textContent = formatMaybeNumber(row && row.judge_reward);
+      formatRewardVal.textContent = formatMaybeNumber(row && row.format_reward);
+
+      // Task
+      taskVal.textContent = (row && row.task) ?? '';
+
+      // Functions from info
+      renderFunctions(row && row.info);
+
+      // Prompts
+      renderPrompts(row && row.prompt);
+
+      // Completions
+      renderCompletions(row && row.completion);
+
+      // Answer
+      answerVal.textContent = (row && row.answer) ?? '';
+    }
+
+    // (no-op: previous array accessor removed in JSONL mode)
+
+    function formatMaybeNumber(v) {
+      if (v === null || v === undefined || Number.isNaN(v)) return '-';
+      if (typeof v === 'number') return v.toFixed(6).replace(/\.0+$/, '');
+      return String(v);
+    }
+
+    function computeMean(arr) {
+      if (!Array.isArray(arr)) return null;
+      let sum = 0;
+      let count = 0;
+      for (const v of arr) {
+        let num = typeof v === 'number' ? v : Number(v);
+        if (Number.isFinite(num)) { sum += num; count++; }
+      }
+      return count > 0 ? sum / count : null;
+    }
+
+    function setMeans() {
+      const mReward = computeMean(Array.isArray(rows) ? rows.map(r => r && r.reward) : null);
+      const mJudge = computeMean(Array.isArray(rows) ? rows.map(r => r && r.judge_reward) : null);
+      const mFormat = computeMean(Array.isArray(rows) ? rows.map(r => r && r.format_reward) : null);
+      rewardMeanVal.textContent = formatMaybeNumber(mReward);
+      judgeRewardMeanVal.textContent = formatMaybeNumber(mJudge);
+      formatRewardMeanVal.textContent = formatMaybeNumber(mFormat);
+    }
+
+    function renderFunctions(infoEntry) {
+      functionsList.innerHTML = '';
+      if (!infoEntry) return;
+
+      // Some datasets store info as an object or array of objects for each trajectory
+      const entries = Array.isArray(infoEntry) ? infoEntry : [infoEntry];
+      const nameToSpec = new Map();
+      for (const ent of entries) {
+        if (!ent || typeof ent !== 'object') continue;
+        const tools = ent.oai_tools;
+        if (Array.isArray(tools)) {
+          for (const t of tools) {
+            const fn = t && t.function && t.function.name;
+            if (fn) {
+              // preserve first spec seen per function name
+              if (!nameToSpec.has(fn)) nameToSpec.set(fn, safeToString(t));
+            }
+          }
+        }
+      }
+
+      if (nameToSpec.size === 0) {
+        const span = document.createElement('span');
+        span.textContent = 'No function names found.';
+        span.className = 'muted';
+        functionsList.appendChild(span);
+        return;
+      }
+
+      for (const [n, spec] of nameToSpec.entries()) {
+        const pill = document.createElement('span');
+        pill.className = 'pill tool-chip';
+        pill.textContent = n;
+        attachTooltip(pill, spec);
+        functionsList.appendChild(pill);
+      }
+    }
+
+    function renderPrompts(promptTrajectory) {
+      systemPrompt.textContent = '';
+      userPrompt.textContent = '';
+      if (!Array.isArray(promptTrajectory)) return;
+
+      const systemMsg = promptTrajectory.find(m => m && m.role === 'system');
+      const userMsg = promptTrajectory.find(m => m && m.role === 'user');
+      if (systemMsg && typeof systemMsg.content === 'string') {
+        systemPrompt.textContent = systemMsg.content;
+      }
+      if (userMsg && typeof userMsg.content === 'string') {
+        userPrompt.textContent = userMsg.content;
+      }
+    }
+
+    function renderCompletions(completionTrajectory) {
+      completionList.innerHTML = '';
+      if (!Array.isArray(completionTrajectory)) return;
+
+      completionTrajectory.forEach((msg, i) => {
+        const div = document.createElement('div');
+        const isTool = msg && msg.role === 'tool';
+        const isToolCall = !!(msg && msg.role === 'assistant' && hasToolCalls(msg));
+        const isAssistant = !!(msg && msg.role === 'assistant' && !isToolCall);
+
+        div.className = 'message ' + (isTool ? 'tool-result' : isToolCall ? 'tool-call' : 'assistant');
+
+        // Tool call chips
+        if (isToolCall) {
+          const chips = document.createElement('div');
+          chips.className = 'tool-chips';
+          const calls = normalizeToolCalls(msg.tool_calls);
+          calls.forEach((c, idxCall) => {
+            const name = (c && c.function && c.function.name) ? c.function.name : 'tool_call';
+            const chip = document.createElement('span');
+            chip.className = 'pill tool-chip';
+            chip.textContent = `${name}`;
+            const fullSpec = safeToString(c);
+            attachTooltip(chip, fullSpec);
+            chips.appendChild(chip);
+          });
+          div.appendChild(chips);
+        }
+
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        const left = document.createElement('div');
+        left.textContent = `[${i + 1}] role: ${msg?.role ?? 'unknown'}`;
+        const right = document.createElement('div');
+        if (isToolCall) right.textContent = 'tool call';
+        if (isTool) right.textContent = 'tool result';
+        if (isAssistant) right.textContent = 'assistant response';
+        meta.appendChild(left);
+        meta.appendChild(right);
+        div.appendChild(meta);
+
+        // Content
+        const pre = document.createElement('div');
+        pre.className = 'pre';
+        const contentText = isToolCall ? prettyPrintToolCalls(msg.tool_calls) : safeToString(msg?.content);
+        const trunc = makeTruncatable(pre, contentText);
+        div.appendChild(pre);
+        if (trunc && trunc.button) div.appendChild(trunc.button);
+
+        // If assistant message has both tool_calls and content, show content too
+        if (isToolCall && msg?.content && String(msg.content).trim().length > 0) {
+          const extra = document.createElement('div');
+          extra.style.marginTop = '8px';
+          const lab = document.createElement('div');
+          lab.textContent = 'assistant content:';
+          lab.style.color = '#1f2937';
+          const cont = document.createElement('div');
+          cont.className = 'pre';
+          const trunc2 = makeTruncatable(cont, String(msg.content));
+          extra.appendChild(lab);
+          extra.appendChild(cont);
+          if (trunc2 && trunc2.button) extra.appendChild(trunc2.button);
+          div.appendChild(extra);
+        }
+
+        completionList.appendChild(div);
+      });
+    }
+
+    function hasToolCalls(msg) {
+      if (!msg) return false;
+      if (!('tool_calls' in msg)) return false;
+      const tc = msg.tool_calls;
+      if (!tc) return false;
+      if (Array.isArray(tc)) return tc.length > 0;
+      return true;
+    }
+
+    function prettyPrintToolCalls(toolCalls) {
+      try {
+        if (!toolCalls) return '(no tool calls)';
+        if (Array.isArray(toolCalls)) {
+          const parsed = toolCalls.map(t => {
+            // Some datasets store JSON strings; attempt to parse
+            if (typeof t === 'string') {
+              try { return JSON.parse(t); } catch { return t; }
+            }
+            return t;
+          });
+          return JSON.stringify(parsed, null, 2);
+        }
+        if (typeof toolCalls === 'string') {
+          try { return JSON.stringify(JSON.parse(toolCalls), null, 2); } catch { return toolCalls; }
+        }
+        return JSON.stringify(toolCalls, null, 2);
+      } catch {
+        return safeToString(toolCalls);
+      }
+    }
+
+    function normalizeToolCalls(toolCalls) {
+      if (!toolCalls) return [];
+      if (Array.isArray(toolCalls)) {
+        return toolCalls.map(t => {
+          if (typeof t === 'string') {
+            try { return JSON.parse(t); } catch { return { raw: t }; }
+          }
+          return t;
+        });
+      }
+      if (typeof toolCalls === 'string') {
+        try { return [JSON.parse(toolCalls)]; } catch { return [{ raw: toolCalls }]; }
+      }
+      return [toolCalls];
+    }
+
+    function safeToString(v) {
+      if (v === null || v === undefined) return '';
+      if (typeof v === 'string') return v;
+      try { return JSON.stringify(v, null, 2); } catch { return String(v); }
+    }
+
+    // Truncation helper for long messages
+    function makeTruncatable(container, fullText, charLimit = 1200) {
+      if (typeof fullText !== 'string') fullText = safeToString(fullText);
+      if (!fullText) {
+        container.textContent = '';
+        return null;
+      }
+      if (fullText.length <= charLimit) {
+        container.textContent = fullText;
+        return null;
+      }
+      const shortText = fullText.slice(0, charLimit) + '…';
+      container.textContent = shortText;
+      const btn = document.createElement('button');
+      btn.className = 'small-btn';
+      btn.textContent = 'Show more';
+      let expanded = false;
+      btn.addEventListener('click', () => {
+        expanded = !expanded;
+        if (expanded) {
+          container.textContent = fullText;
+          btn.textContent = 'Show less';
+        } else {
+          container.textContent = shortText;
+          btn.textContent = 'Show more';
+        }
+        if (container.nextSibling !== btn) {
+          container.parentElement.insertBefore(btn, container.nextSibling);
+        }
+      });
+      return { button: btn };
+    }
+
+    // Tooltip logic for tool chips
+    const tooltip = document.getElementById('tooltip');
+    function attachTooltip(element, text) {
+      let visible = false;
+      let overAnchor = false;
+      let overTip = false;
+      let hideTimer = null;
+
+      function show(e) {
+        tooltip.style.display = 'block';
+        tooltip.textContent = text;
+        positionTooltip(e);
+        visible = true;
+      }
+      function hide() {
+        tooltip.style.display = 'none';
+        tooltip.textContent = '';
+        visible = false;
+      }
+      function scheduleHide() {
+        if (hideTimer) clearTimeout(hideTimer);
+        hideTimer = setTimeout(() => {
+          if (!overAnchor && !overTip) hide();
+        }, 120);
+      }
+      function positionTooltip(e) {
+        const pad = 12;
+        let x = e.clientX + pad;
+        let y = e.clientY + pad;
+        tooltip.style.left = x + 'px';
+        tooltip.style.top = y + 'px';
+        // Clamp to viewport after initial position to avoid overflow
+        const rect = tooltip.getBoundingClientRect();
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        if (rect.right > vw - 8) {
+          x = Math.max(8, vw - rect.width - 8);
+          tooltip.style.left = x + 'px';
+        }
+        if (rect.bottom > vh - 8) {
+          y = Math.max(8, vh - rect.height - 8);
+          tooltip.style.top = y + 'px';
+        }
+      }
+      element.addEventListener('mouseenter', (e) => { overAnchor = true; show(e); });
+      element.addEventListener('mousemove', (e) => { if (visible) positionTooltip(e); });
+      element.addEventListener('mouseleave', () => { overAnchor = false; scheduleHide(); });
+      element.addEventListener('touchstart', (e) => { if (!visible) show(e.touches[0]); });
+
+      tooltip.addEventListener('mouseenter', () => { overTip = true; });
+      tooltip.addEventListener('mouseleave', () => { overTip = false; scheduleHide(); });
+    }
+  </script>
+</body>
+</html>
