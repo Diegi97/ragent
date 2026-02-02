@@ -1,8 +1,8 @@
 [project]
 name = "bm25-search"
-description = "Your environment description here"
-tags = ["placeholder-tag", "train", "eval"]
-version = "0.1.1"
+description = "Agentic search across multiple data sources"
+tags = ["single-turn", "agentic-search", "tool-use", "web-search"]
+version = "0.1.2"
 requires-python = ">=3.11"
 dependencies = [
     "ragent-core>=0.2.1",

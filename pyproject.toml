@@ -1,7 +1,7 @@
 [project]
 name = "ragent-core"
 version = "0.2.1"
-description = "Add your description here"
+description = "Training language models to perform agentic multi-hop search through reinforcement learning"
 readme = "README.md"
 authors = [
     { name = "Diego Peláez Paquico", email = "diegi97@gmail.com" }
