@@ -28,7 +28,9 @@ The environment layer (`environments/`) handles the search system setup, curricu
 - **Reward Functions**: LLM-based judges and other reward signals (e.g., format compliance, tool usage) for evaluating agent trajectories
 
 Current environments:
-- `bm25/` — Lightweight lexical search environment using BM25s.
+- `bm25_search/` — Lightweight lexical search environment using BM25s.
+
+The BM25 search environment is available on the [Prime Intellect Environment Hub](https://app.primeintellect.ai/dashboard/environments/diegi97/bm25-search).
 
 ### 3. Training
 
