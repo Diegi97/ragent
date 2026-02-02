@@ -1,12 +1,12 @@
 [project]
-name = "bm25"
+name = "bm25-search"
 description = "Your environment description here"
 tags = ["placeholder-tag", "train", "eval"]
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
-    "ragent-core",
-    "verifiers>=0.1.9",
+    "ragent-core>=0.2.1",
+    "verifiers>=0.1.9.post3",
 ]
 
 [build-system]
@@ -14,13 +14,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build]
-include = ["bm25.py", "pyproject.toml"]
+include = ["bm25_search.py", "pyproject.toml"] 
 
-[tool.uv.sources]
-ragent-core = { path = "../../." }
-
-[dependency-groups]
-dev = [
-    "ipykernel>=6.30.1",
-    "ipywidgets>=8.1.7",
-]
+[tool.verifiers.eval]
+num_examples = 5
+rollouts_per_example = 3

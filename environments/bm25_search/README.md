@@ -1,9 +1,9 @@
-# bm25s
+# bm25-search
 
-> Replace the placeholders below, then remove this callout. Keep the Evaluation Reports section at the bottom intact so reports can auto-render.
+> Replace the placeholders below, then remove this callout.
 
 ### Overview
-- **Environment ID**: `bm25s`
+- **Environment ID**: `bm25-search`
 - **Short description**: <one-sentence description>
 - **Tags**: <comma-separated tags>
 
@@ -21,13 +21,13 @@
 Run an evaluation with default settings:
 
 ```bash
-uv run vf-eval bm25s
+prime eval run bm25-search
 ```
 
 Configure model and sampling:
 
 ```bash
-uv run vf-eval bm25s   -m gpt-4.1-mini   -n 20 -r 3 -t 1024 -T 0.7   -a '{"key": "value"}'  # env-specific args as JSON
+prime eval run bm25-search   -m gpt-4.1-mini   -n 20 -r 3 -t 1024 -T 0.7   -a '{"key": "value"}'  # env-specific args as JSON
 ```
 
 Notes:

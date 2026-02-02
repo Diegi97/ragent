@@ -31,7 +31,7 @@ DATA_SOURCES = [
     "rust_rfcs",
 ]
 
-HF_REPO_ID = "diegi97/data_sources"
+HF_REPO_ID = "diegi97/ragent_data_sources"
 
 
 def load_all_data_sources() -> DatasetDict:
@@ -66,7 +66,7 @@ def upload_to_huggingface(dataset_dict: DatasetDict, repo_id: str):
 
     Args:
         dataset_dict: DatasetDict containing all data source splits
-        repo_id: HuggingFace repository ID (e.g., "diegi97/data_sources")
+        repo_id: HuggingFace repository ID (e.g., "diegi97/ragent_data_sources")
     """
 
     logger.info(f"Uploading dataset to HuggingFace: {repo_id}")
@@ -112,10 +112,10 @@ Each document has the following fields:
 from datasets import load_dataset
 
 # Load all splits
-dataset = load_dataset("diegi97/data_sources")
+dataset = load_dataset("diegi97/ragent_data_sources")
 
 # Load a specific split
-peps = load_dataset("diegi97/data_sources", split="common_pile_peps")
+peps = load_dataset("diegi97/ragent_data_sources", split="common_pile_peps")
 ```
 """
 

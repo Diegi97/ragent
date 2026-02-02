@@ -85,7 +85,7 @@ def load_environment() -> vf.Environment:
         return {"prompt": [{"role": "user", "content": example["prompt"]}]}
 
     dataset = dataset.map(transform_prompt)
-    data_sources = load_dataset("diegi97/data_sources")
+    data_sources = load_dataset("diegi97/ragent_data_sources")
 
     rubric = vf.Rubric(
         funcs=[judge_reward, format_reward],
