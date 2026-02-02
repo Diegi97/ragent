@@ -1,0 +1,26 @@
+[project]
+name = "bm25"
+description = "Your environment description here"
+tags = ["placeholder-tag", "train", "eval"]
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "ragent-core",
+    "verifiers>=0.1.3",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build]
+include = ["bm25.py"]
+
+[tool.uv.sources]
+ragent-core = { path = "../../ragent_core" }
+
+[dependency-groups]
+dev = [
+    "ipykernel>=6.30.1",
+    "ipywidgets>=8.1.7",
+]

@@ -1,0 +1,3 @@
+SPARQL_ENDPOINT = "http://90.168.228.226:8890/sparql"
+SPARQL_GRAPH = "http://dbpedia.org"
+MAX_EXPANSION_TRIES = 10
