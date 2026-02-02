@@ -3,6 +3,10 @@ from typing import Any, Dict, List, Union
 
 import backoff
 
+# TODO: Add Answer Accuracy metric from Ragas/Nvidia as an alternative judge reward.
+# Uses dual LLM-as-a-Judge prompts for robust evaluation, lightweight and works well with smaller models.
+# See: https://docs.ragas.io/en/latest/concepts/metrics/available_metrics/nvidia_metrics/#answer-accuracy
+
 from ragent_core.config import JUDGE_CLIENT, JUDGE_MODEL
 from ragent_core.prompts.agent.search_engine import (
     RESPONSE_PARSER as AGENT_RESPONSE_PARSER,
