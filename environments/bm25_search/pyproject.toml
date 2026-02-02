@@ -2,7 +2,7 @@
 name = "bm25-search"
 description = "Your environment description here"
 tags = ["placeholder-tag", "train", "eval"]
-version = "0.1.0"
+version = "0.1.1"
 requires-python = ">=3.11"
 dependencies = [
     "ragent-core>=0.2.1",

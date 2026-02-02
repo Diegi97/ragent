@@ -2,8 +2,8 @@
 
 ### Overview
 - **Environment ID**: `bm25-search`
-- **Short description**: RL environment for training agentic multi-hop search using BM25 lexical retrieval
-- **Tags**: `bm25`, `lexical-search`, `agentic-search`, `multi-hop`, `rl-training`
+- **Short description**: Environment for training agentic multi-hop search using BM25 lexical retrieval
+- **Tags**: `bm25`, `agentic-search`, `multi-hop`, `tool-use`, `single-turn`
 
 ### Datasets
 - **Primary dataset(s)**: [ragent_qa_pairs](https://huggingface.co/datasets/diegi97/ragent_qa_pairs), [ragent_data_sources](https://huggingface.co/datasets/diegi97/ragent_data_sources)
@@ -21,7 +21,7 @@
 
 RAGent is a research project focused on training language models to perform **agentic search** through reinforcement learning. The goal is to train models that can autonomously perform multi-hop searches across document collections, breaking down complex information needs into sequences of search queries, reading relevant documents, and synthesizing answers.
 
-This environment focuses on **lexical search using BM25**, providing a simple yet effective retrieval backend. The simplicity of BM25 makes it easy to deploy for training while still giving models the tools and instructions needed to perform successful multi-hop searches. Models trained here are intended to:
+This environment focuses on **lexical search using BM25**. The simplicity of BM25 makes it easy to deploy for training while still giving models the tools and instructions needed to perform successful multi-hop searches. Models trained here are intended to:
 
 - Formulate effective search queries
 - Navigate search results and read relevant documents
@@ -125,7 +125,4 @@ This environment is under **active development**. Planned improvements include:
 
 - Expanding the number and diversity of data sources
 - Increasing the quantity of QA pairs
-- Improving synthetic pipeline quality for more challenging multi-hop questions
-- Adding additional reward signals and curriculum learning strategies
-
-Contributions and feedback are welcome at the [main repository](https://github.com/Diegi97/ragent).
+- Improving synthetic pipeline quality for higher quality multi-hop questions
