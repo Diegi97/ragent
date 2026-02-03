@@ -17,5 +17,5 @@ build-backend = "hatchling.build"
 include = ["bm25_search.py", "pyproject.toml"] 
 
 [tool.verifiers.eval]
-num_examples = 5
-rollouts_per_example = 3
+num_examples = 229
+rollouts_per_example = 1

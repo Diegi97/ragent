@@ -35,6 +35,7 @@ dependencies = [
 train = [
     "verifiers[all]>=0.1.9",
     "flash-attn",
+    "vllm",
 ]
 
 [project.scripts]
