@@ -67,6 +67,18 @@ from ragent_core.pipelines.explorer_agent.explorer_agent import (
     ExplorerAgentQAConfig,
     ExplorerAgentQAPipeline,
 )
+from ragent_core.pipelines.cross_concept_synthesis import (
+    DEFAULT_GEMINI_MODEL_ID as DEFAULT_CROSS_CONCEPT_MODEL_ID,
+    DEFAULT_EMBEDDING_MODEL_NAME as DEFAULT_CROSS_CONCEPT_EMBEDDING_MODEL,
+    DEFAULT_MAX_CONCURRENT_REQUESTS as DEFAULT_MAX_CONCURRENT_REQUESTS_CROSS,
+    DEFAULT_MIN_GROUP_SIZE as DEFAULT_MIN_GROUP_SIZE_CROSS,
+    DEFAULT_MAX_GROUP_SIZE as DEFAULT_MAX_GROUP_SIZE_CROSS,
+    DEFAULT_MAX_GROUPS as DEFAULT_MAX_GROUPS_CROSS,
+    DEFAULT_QAS_PER_CONCEPT as DEFAULT_QAS_PER_CONCEPT_CROSS,
+    DEFAULT_SIMILARITY_THRESHOLD as DEFAULT_SIMILARITY_THRESHOLD_CROSS,
+    CrossConceptSynthesisConfig,
+    CrossConceptSynthesisPipeline,
+)
 from ragent_core.types import QA
 
 
@@ -755,12 +767,74 @@ def gen_explorer_agent(
     return _run_pipeline(pipeline, config, output_path)
 
 
+def cross_concept_synthesis(
+    input_path: str,
+    output_path: Optional[str] = None,
+    model_id: str = DEFAULT_CROSS_CONCEPT_MODEL_ID,
+    embedding_model: str = DEFAULT_CROSS_CONCEPT_EMBEDDING_MODEL,
+    sem: int = DEFAULT_MAX_CONCURRENT_REQUESTS_CROSS,
+    min_group_size: int = DEFAULT_MIN_GROUP_SIZE_CROSS,
+    max_group_size: int = DEFAULT_MAX_GROUP_SIZE_CROSS,
+    max_groups: int = DEFAULT_MAX_GROUPS_CROSS,
+    qas_per_concept: int = DEFAULT_QAS_PER_CONCEPT_CROSS,
+    similarity_threshold: float = DEFAULT_SIMILARITY_THRESHOLD_CROSS,
+    seed: int = DEFAULT_RANDOM_SEED,
+) -> dict:
+    """
+    Create cross-concept QA pairs by synthesizing across existing QA pairs.
+
+    Args:
+        input_path: Path to an existing QA JSON file (list or dict with "qas").
+        output_path: Optional output path for the merged QA file. If omitted,
+            writes to `<input_stem>_cross_concept.json` in the same directory.
+        model_id: Gemini model used for synthesis.
+        embedding_model: Embedding model used for concept grouping.
+        sem: Maximum concurrent LLM calls.
+        min_group_size: Minimum concepts per synthesis group.
+        max_group_size: Maximum concepts per synthesis group.
+        max_groups: Maximum number of concept groups to synthesize.
+        qas_per_concept: Number of QA pairs sampled per concept.
+        similarity_threshold: Minimum cosine similarity between concepts in a group.
+        seed: Random seed for reproducibility.
+    """
+    _configure_logging()
+    pipeline = CrossConceptSynthesisPipeline()
+    config = CrossConceptSynthesisConfig(
+        input_path=input_path,
+        output_path=output_path,
+        model_id=model_id,
+        embedding_model_name=embedding_model,
+        max_concurrent_requests=sem,
+        min_group_size=min_group_size,
+        max_group_size=max_group_size,
+        max_groups=max_groups,
+        qas_per_concept=qas_per_concept,
+        similarity_threshold=similarity_threshold,
+        seed=seed,
+    )
+    qas = asyncio.run(pipeline.generate(config))
+    resolved_output = (
+        output_path
+        if output_path
+        else str(
+            Path(input_path).with_name(
+                f"{Path(input_path).stem}_cross_concept.json"
+            )
+        )
+    )
+    return {
+        "num_pairs": len(qas),
+        "output_path": resolved_output,
+    }
+
+
 class RAGentCLI:
     def __init__(self) -> None:
         self.data = {
             "gen_qa": gen_qa,
             "compose_multistep": compose_multistep,
             "gen_explorer_agent": gen_explorer_agent,
+            "cross_concept_synthesis": cross_concept_synthesis,
             "upload_to_hf": upload_to_hf_dataset,
         }
 

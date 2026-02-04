@@ -7,6 +7,9 @@ from ragent_core.pipelines.base import BasePipeline, PipelineMetadata
 from ragent_core.pipelines.atomic import AtomicQAPipeline
 from ragent_core.pipelines.multistep import MultiStepQAPipeline
 from ragent_core.pipelines.explorer_agent import ExplorerAgentQAPipeline
+from ragent_core.pipelines.cross_concept_synthesis import (
+    CrossConceptSynthesisPipeline,
+)
 
 
 DEFAULT_PIPELINE = "qa/atomic"
@@ -66,4 +69,5 @@ __all__ = [
     "AtomicQAPipeline",
     "MultiStepQAPipeline",
     "ExplorerAgentQAPipeline",
+    "CrossConceptSynthesisPipeline",
 ]
