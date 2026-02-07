@@ -43,7 +43,16 @@ def _parse_args() -> argparse.Namespace:
         help="Topic name to process.",
     )
     parser.add_argument(
-        "--top-k", type=int, default=5000, help="Top documents for the topic."
+        "--top-k",
+        type=int,
+        default=5000,
+        help="Top documents for the topic (used if --similarity-threshold not set).",
+    )
+    parser.add_argument(
+        "--sim",
+        type=float,
+        default=None,
+        help="Keep documents with similarity above this threshold (overrides --top-k).",
     )
     parser.add_argument(
         "--max-words", type=int, default=8000, help="Max words per document."
@@ -145,11 +154,28 @@ def main() -> None:
                 "Saved %d documents with embeddings to %s", len(metas), parquet_path
             )
 
-    # Compute topic scores and select top-k
+    # Compute topic scores and filter by threshold or top-k
     topic_scores = model.similarity(topic_emb, doc_embs)[0].numpy()
-    top_indices = np.argsort(topic_scores)[::-1][: args.top_k]
+    if args.sim is not None:
+        # Filter by similarity threshold
+        threshold_indices = np.where(topic_scores >= args.sim)[0]
+        # Sort by score descending
+        sorted_threshold_indices = threshold_indices[
+            np.argsort(topic_scores[threshold_indices])[::-1]
+        ]
+        selected_indices = sorted_threshold_indices
+        logger.info(
+            "Found %d documents with similarity >= %.4f",
+            len(selected_indices),
+            args.sim,
+        )
+    else:
+        # Use top-k
+        selected_indices = np.argsort(topic_scores)[::-1][: args.top_k]
+        logger.info("Selected top %d documents", len(selected_indices))
+    
     records = []
-    for idx in top_indices:
+    for idx in selected_indices:
         records.append(
             {
                 "id": metas[idx]["id"],
