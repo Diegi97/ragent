@@ -386,13 +386,13 @@ def prepare_curriculum_dataset(
     # Transform to verifiers format:
     # - prompt: renamed from question
     # - answer: kept as-is
-    # - info: JSON string with data_source, difficulty, doc_indices, and original info fields
+    # - info: JSON string with data_source, difficulty, doc_ids, and original info fields
     def to_verifiers_format(example: Dict[str, Any]) -> Dict[str, Any]:
         info = example.get("info", {}) or {}
         new_info = {
             "data_source": example.get("data_source", "unknown"),
             "difficulty": example.get("difficulty", 5),
-            "doc_indices": example.get("doc_indices", []),
+            "doc_ids": example.get("doc_ids", []),
             **info,  # Include all original info fields (depth, breadth, concept, etc.)
         }
         return {

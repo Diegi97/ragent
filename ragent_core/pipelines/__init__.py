@@ -10,6 +10,7 @@ from ragent_core.pipelines.explorer_agent import ExplorerAgentQAPipeline
 from ragent_core.pipelines.cross_concept_synthesis import (
     CrossConceptSynthesisPipeline,
 )
+from ragent_core.pipelines.entity_fact_qa import EntityFactQAPipeline
 
 
 DEFAULT_PIPELINE = "qa/atomic"
@@ -70,4 +71,5 @@ __all__ = [
     "MultiStepQAPipeline",
     "ExplorerAgentQAPipeline",
     "CrossConceptSynthesisPipeline",
+    "EntityFactQAPipeline",
 ]

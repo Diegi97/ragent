@@ -79,6 +79,23 @@ from ragent_core.pipelines.cross_concept_synthesis import (
     CrossConceptSynthesisConfig,
     CrossConceptSynthesisPipeline,
 )
+from ragent_core.pipelines.entity_fact_qa import (
+    DEFAULT_COMPLEX_PAIR_RATIO as DEFAULT_ENTITY_FACT_COMPLEX_PAIR_RATIO,
+    DEFAULT_CONCEPT_MODEL_ID as DEFAULT_ENTITY_FACT_CONCEPT_MODEL_ID,
+    DEFAULT_EVAL_SIZE as DEFAULT_ENTITY_FACT_EVAL_SIZE,
+    DEFAULT_FACT_MODEL_ID as DEFAULT_ENTITY_FACT_MODEL_ID,
+    DEFAULT_FACT_REFINEMENT_CHUNK_SIZE as DEFAULT_ENTITY_FACT_REFINEMENT_CHUNK_SIZE,
+    DEFAULT_MAX_CONCURRENT_REQUESTS as DEFAULT_MAX_CONCURRENT_REQUESTS_ENTITY_FACT,
+    DEFAULT_MAX_QA_GENERATION_ATTEMPTS as DEFAULT_ENTITY_FACT_MAX_QA_ATTEMPTS,
+    DEFAULT_MAX_DOCS_PER_ENTITY as DEFAULT_ENTITY_FACT_MAX_DOCS_PER_ENTITY,
+    DEFAULT_NUM_ENTITIES as DEFAULT_ENTITY_FACT_NUM_ENTITIES,
+    DEFAULT_QA_MODEL_ID as DEFAULT_ENTITY_FACT_QA_MODEL_ID,
+    DEFAULT_QA_PAIRS_PER_ENTITY as DEFAULT_ENTITY_FACT_QA_PAIRS_PER_ENTITY,
+    DEFAULT_SEED as DEFAULT_ENTITY_FACT_SEED,
+    DEFAULT_TRAIN_SIZE as DEFAULT_ENTITY_FACT_TRAIN_SIZE,
+    EntityFactQAConfig,
+    EntityFactQAPipeline,
+)
 from ragent_core.types import QA
 
 
@@ -94,8 +111,8 @@ def _configure_logging() -> None:
 def _qa_to_dict(qa: Any, idx: int) -> dict:
     record: dict[str, Any] = {
         "id": idx,
-        "doc_indices": list(qa.doc_indices),
-        "num_docs": len(qa.doc_indices),
+        "doc_ids": list(qa.doc_ids),
+        "num_docs": len(qa.doc_ids),
     }
 
     if hasattr(qa, "questions"):
@@ -513,6 +530,36 @@ def _build_metadata_dict(
             metadata["retriever_type"] = "HybridRetriever"
         return metadata
 
+    if isinstance(config, EntityFactQAConfig):
+        metadata["models"] = {
+            "concept": config.concept_model_id,
+            "fact_extraction": config.fact_model_id,
+            "qa_generation": config.qa_model_id,
+        }
+        metadata["parameters"] = {
+            "num_entities": config.num_entities,
+            "qa_pairs_per_entity": config.qa_pairs_per_entity,
+            "seed": config.seed,
+            "max_concurrent_requests": config.max_concurrent_requests,
+            "fact_refinement_chunk_size": config.fact_refinement_chunk_size,
+            "complex_pair_ratio": config.complex_pair_ratio,
+            "max_qa_generation_attempts": config.max_qa_generation_attempts,
+            "max_docs_per_entity": config.max_docs_per_entity,
+            "use_bm25": config.use_bm25,
+            "use_lite_retriever": config.use_lite_retriever,
+        }
+        if config.use_bm25:
+            metadata["retriever_type"] = "BM25Retriever"
+        elif config.use_lite_retriever:
+            metadata["retriever_type"] = "HybridRetriever (lightweight)"
+            metadata["retriever_models"] = {
+                "colbert": "mixedbread-ai/mxbai-edge-colbert-v0-32m",
+                "reranker": "mixedbread-ai/mxbai-rerank-xsmall-v1",
+            }
+        else:
+            metadata["retriever_type"] = "HybridRetriever"
+        return metadata
+
     model_metadata = _collect_model_metadata(config)
     if model_metadata:
         metadata["models"] = model_metadata
@@ -828,12 +875,79 @@ def cross_concept_synthesis(
     }
 
 
+def gen_entity_fact(
+    data_source: str,
+    num_entities: int = DEFAULT_ENTITY_FACT_NUM_ENTITIES,
+    qa_pairs_per_entity: int = DEFAULT_ENTITY_FACT_QA_PAIRS_PER_ENTITY,
+    concept_model: str = DEFAULT_ENTITY_FACT_CONCEPT_MODEL_ID,
+    fact_model: str = DEFAULT_ENTITY_FACT_MODEL_ID,
+    qa_model: str = DEFAULT_ENTITY_FACT_QA_MODEL_ID,
+    seed: int = DEFAULT_ENTITY_FACT_SEED,
+    sem: int = DEFAULT_MAX_CONCURRENT_REQUESTS_ENTITY_FACT,
+    fact_refinement_chunk_size: int = DEFAULT_ENTITY_FACT_REFINEMENT_CHUNK_SIZE,
+    complex_pair_ratio: float = DEFAULT_ENTITY_FACT_COMPLEX_PAIR_RATIO,
+    max_qa_generation_attempts: int = DEFAULT_ENTITY_FACT_MAX_QA_ATTEMPTS,
+    max_docs_per_entity: int = DEFAULT_ENTITY_FACT_MAX_DOCS_PER_ENTITY,
+    output_path: Optional[str] = None,
+    enable_train_eval_split: bool = False,
+    train_size: float | int | None = DEFAULT_ENTITY_FACT_TRAIN_SIZE,
+    eval_size: float | int | None = DEFAULT_ENTITY_FACT_EVAL_SIZE,
+    use_bm25: bool = False,
+    use_lite_retriever: bool = False,
+) -> dict:
+    """
+    Generate entity-grounded QA pairs via iterative fact extraction/refinement.
+
+    Args:
+        data_source: Data source identifier.
+        num_entities: Number of sampled entities/concepts.
+        qa_pairs_per_entity: Number of QA pairs to generate for each entity.
+        concept_model: Model used for entity sampling.
+        fact_model: Model used for iterative fact extraction/refinement.
+        qa_model: Model used for QA generation from facts.
+        seed: Random seed.
+        sem: Maximum concurrent LLM calls.
+        fact_refinement_chunk_size: Number of documents processed per refinement step.
+        complex_pair_ratio: Fraction of QA pairs that should be complex.
+        max_qa_generation_attempts: Retries for QA generation per entity.
+        max_docs_per_entity: Maximum number of documents to retrieve per entity.
+        output_path: Optional output file/directory override.
+        enable_train_eval_split: Whether to save train/eval splits.
+        train_size: Train split size if splitting is enabled.
+        eval_size: Eval split size if splitting is enabled.
+        use_bm25: If True, use BM25 retriever.
+        use_lite_retriever: If True, use lightweight HybridRetriever models.
+    """
+    pipeline = EntityFactQAPipeline()
+    config = EntityFactQAConfig(
+        data_source=data_source,
+        num_entities=num_entities,
+        qa_pairs_per_entity=qa_pairs_per_entity,
+        concept_model_id=concept_model,
+        fact_model_id=fact_model,
+        qa_model_id=qa_model,
+        seed=seed,
+        max_concurrent_requests=sem,
+        fact_refinement_chunk_size=fact_refinement_chunk_size,
+        complex_pair_ratio=complex_pair_ratio,
+        max_qa_generation_attempts=max_qa_generation_attempts,
+        max_docs_per_entity=max_docs_per_entity,
+        enable_train_eval_split=enable_train_eval_split,
+        train_size=train_size,
+        eval_size=eval_size,
+        use_bm25=use_bm25,
+        use_lite_retriever=use_lite_retriever,
+    )
+    return _run_pipeline(pipeline, config, output_path)
+
+
 class RAGentCLI:
     def __init__(self) -> None:
         self.data = {
             "gen_qa": gen_qa,
             "compose_multistep": compose_multistep,
             "gen_explorer_agent": gen_explorer_agent,
+            "gen_entity_fact": gen_entity_fact,
             "cross_concept_synthesis": cross_concept_synthesis,
             "upload_to_hf": upload_to_hf_dataset,
         }
