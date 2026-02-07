@@ -48,9 +48,7 @@ class MultiSourceBM25Environment(vf.StatefulToolEnv):
         tool_args["data_source"] = state.get("input").get("info").get("data_source")
         return tool_args
 
-    def search_tool(
-        self, queries: list[str], data_source: str
-    ) -> dict[str, list[dict[str, str]]]:
+    def search_tool(self, queries: list[str], data_source: str) -> str:
         return self._retrievers[data_source].search_tool(queries)
 
     def read_tool(self, doc_ids: list[int], data_source: str) -> str:

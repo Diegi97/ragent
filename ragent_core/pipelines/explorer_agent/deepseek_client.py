@@ -198,7 +198,7 @@ class DeepseekClient:
                         qa_pair = QA(
                             question=qa_data["question"],
                             answer=qa_data["answer"],
-                            doc_indices=qa_data["doc_ids"] or [],
+                            doc_ids=qa_data["doc_ids"] or [],
                         )
                         qa_pairs.append(qa_pair)
         return qa_pairs

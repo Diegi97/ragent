@@ -8,7 +8,8 @@ You have access to three tools for retrieving information:
 
 1. **search_tool(queries: List[str])**:
    - Accepts a list of search queries.
-   - Returns top 10 chunk results (Doc ID + Title + chunk text) per query.
+   - Returns an XML-formatted string with top 10 chunk results per query:
+     `<search_results><query value="..."><result><id>...</id><title>...</title><snippet>...</snippet></result>...</query>...</search_results>`
    - **How it works:** Uses BM25, semantic embeddings, and reranking to find relevant documents.
    - **Critical:** Submit queries about **different topics or aspects**, NOT multiple variations of the same query.
      * Bad: `["Python documentation", "Python docs", "what is Python documentation"]` (redundant variations)

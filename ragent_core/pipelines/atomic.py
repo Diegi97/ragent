@@ -89,6 +89,7 @@ class AtomicQAPipeline(BasePipeline):
             base_url=OPENROUTER_URL,
             api_key=OPENROUTER_API_KEY,
         )
+        self._doc_id_to_index: dict[Any, int] = {}
 
     @backoff.on_exception(
         backoff.expo, Exception, max_tries=3, jitter=backoff.full_jitter
@@ -179,6 +180,7 @@ class AtomicQAPipeline(BasePipeline):
             question_model_id=question_model,
             rng=rng,
             semaphore=semaphore,
+            max_concepts_per_doc=config.max_concepts_per_doc,
             data_source_description=data_source_description,
         )
 
@@ -242,6 +244,18 @@ class AtomicQAPipeline(BasePipeline):
                 f"Dataset '{data_source}' must include a '{CONTENT_COLUMN}' column after preprocessing."
             )
 
+        # Build doc_id to dataset index mapping
+        if "id" in dataset.column_names:
+            self._doc_id_to_index = {
+                doc_id: idx for idx, doc_id in enumerate(dataset["id"])
+            }
+            print(self._doc_id_to_index)
+            logger.info("Built doc_id to index mapping for %d documents", len(self._doc_id_to_index))
+        else:
+            # If no ID column, use indices as IDs
+            self._doc_id_to_index = {idx: idx for idx in range(len(dataset))}
+            logger.info("No 'id' column found, using indices as doc_ids")
+
         return dataset, name, description
 
     # --------------------------------------------------------------------- #
@@ -254,18 +268,23 @@ class AtomicQAPipeline(BasePipeline):
         question_model_id: str,
         rng: random.Random,
         semaphore: asyncio.Semaphore,
+        max_concepts_per_doc: int = DEFAULT_MAX_CONCEPTS_PER_DOC_CALL,
         data_source_description: Optional[str] = None,
     ) -> list[Concept]:
         logger.info(
-            "Generating at least %d concepts from dataset of %d documents",
+            "Generating at least %d concepts from dataset of %d documents "
+            "(max %d concepts per document)",
             num_pairs,
             len(dataset),
+            max_concepts_per_doc,
         )
 
         if len(dataset) == 0:
             raise ValueError("Cannot generate concepts from an empty dataset")
 
         concepts: list[Concept] = []
+        # Track how many concepts we already kept per doc_id across iterations
+        doc_concept_counts: dict[int, int] = {}
         iteration = 0
         sample_size = min(DEFAULT_SAMPLE_SIZE, len(dataset))
 
@@ -273,9 +292,11 @@ class AtomicQAPipeline(BasePipeline):
             iteration += 1
             indices = self._sample_indices(rng, len(dataset), sample_size)
             subset = dataset.select(indices)
+            doc_ids = list(subset["id"])
 
             prompt_documents = self._format_documents(
-                subset[CONTENT_COLUMN], indices=indices
+                subset[CONTENT_COLUMN],
+                doc_ids=doc_ids,
             )
             prompt = CONCEPT_EXTRACTOR_PROMPT.format(DOCUMENTS=prompt_documents)
             prompt = format_prompt_with_description(prompt, data_source_description)
@@ -283,7 +304,7 @@ class AtomicQAPipeline(BasePipeline):
             logger.debug(
                 "Concept iteration %d: calling model with documents %s",
                 iteration,
-                indices,
+                doc_ids,
             )
 
             def _parse(response: str) -> list[Concept]:
@@ -302,14 +323,27 @@ class AtomicQAPipeline(BasePipeline):
             if parsed is None:
                 continue
 
-            concepts.extend(parsed)
+            # Enforce per-document concept cap
+            kept: list[Concept] = []
+            truncated = 0
+            for concept in parsed:
+                current_count = doc_concept_counts.get(concept.doc_id, 0)
+                if current_count >= max_concepts_per_doc:
+                    truncated += 1
+                    continue
+                doc_concept_counts[concept.doc_id] = current_count + 1
+                kept.append(concept)
+
+            concepts.extend(kept)
             logger.info(
-                "[Iteration %d] +%d concepts (total %d/%d) from documents %s",
+                "[Iteration %d] +%d concepts kept, %d truncated "
+                "(total %d/%d) from documents %s",
                 iteration,
-                len(parsed),
+                len(kept),
+                truncated,
                 len(concepts),
                 num_pairs,
-                indices,
+                doc_ids,
             )
 
         logger.info("Concept generation complete: %d concepts", len(concepts))
@@ -323,11 +357,11 @@ class AtomicQAPipeline(BasePipeline):
         return rng.sample(range(population), k=sample_size)
 
     @staticmethod
-    def _format_documents(documents: Iterable[str], indices: Iterable[int]) -> str:
+    def _format_documents(documents: Iterable[str], doc_ids: Iterable[int]) -> str:
         formatted = []
-        for idx, text in zip(indices, documents):
+        for doc_id, text in zip(doc_ids, documents):
             formatted.append(
-                f"<document>\n<doc_idx>{idx}</doc_idx>\n<content>{text}</content>\n</document>\n"
+                f"<document>\n<doc_id>{doc_id}</doc_id>\n<content>{text}</content>\n</document>\n"
             )
         return "".join(formatted)
 
@@ -377,15 +411,16 @@ class AtomicQAPipeline(BasePipeline):
 
         concepts_by_doc: dict[int, list[Concept]] = {}
         for concept in concepts:
-            concepts_by_doc.setdefault(concept.doc_idx, []).append(concept)
+            concepts_by_doc.setdefault(concept.doc_id, []).append(concept)
 
         tasks = []
         batch_sizes = []
 
         async def _generate_batch(
-            doc_idx: int, concept_batch: list[Concept], batch_number: int
+            doc_id: int, concept_batch: list[Concept], batch_number: int
         ) -> Optional[list[QA]]:
-            source_doc = dataset[doc_idx]
+            doc_index = self._doc_id_to_index.get(doc_id)
+            source_doc = dataset[doc_index]
             expected_concepts = list(concept_batch)
             prompt = QUESTION_GENERATION_PROMPT.format(
                 SOURCE_DOCUMENT=str(source_doc[CONTENT_COLUMN]),
@@ -396,7 +431,7 @@ class AtomicQAPipeline(BasePipeline):
             def _parse(response: str) -> list[QA]:
                 return extract_batch_qas_from_text(
                     response,
-                    doc_idx=doc_idx,
+                    doc_id=doc_id,
                     concepts=expected_concepts,
                 )
 
@@ -407,10 +442,10 @@ class AtomicQAPipeline(BasePipeline):
                 postprocess=_parse,
             )
 
-        for doc_idx, doc_concepts in concepts_by_doc.items():
+        for doc_id, doc_concepts in concepts_by_doc.items():
             batches = list(self._chunk_concepts(doc_concepts, max_concepts_per_doc))
             for batch_number, concept_batch in enumerate(batches, start=1):
-                tasks.append(_generate_batch(doc_idx, concept_batch, batch_number))
+                tasks.append(_generate_batch(doc_id, concept_batch, batch_number))
                 batch_sizes.append(len(concept_batch))
 
         responses = await tqdm_asyncio.gather(
@@ -518,14 +553,14 @@ class AtomicQAPipeline(BasePipeline):
             answer_text = response.strip()
             return answer_text
 
-        if not qa.doc_indices:
+        if not qa.doc_ids:
             logger.warning(
                 "Skipping QA due to missing document indices: %s",
                 qa.question,
             )
             return None
 
-        chunks = list(self._batched(qa.doc_indices, refinement_chunk_size))
+        chunks = list(self._batched(qa.doc_ids, refinement_chunk_size))
         if not chunks:
             logger.warning(
                 "No document chunks available for QA '%s'; skipping",
@@ -537,12 +572,22 @@ class AtomicQAPipeline(BasePipeline):
 
         for chunk_idx, chunk in enumerate(chunks):
             doc_contents: list[str] = []
-            valid_indices: list[int] = []
-            for doc_idx in chunk:
-                doc_contents.append(str(dataset[doc_idx][CONTENT_COLUMN]))
-                valid_indices.append(doc_idx)
+            valid_doc_ids: list[int] = []
+            for doc_id in chunk:
+                # Map doc_id to dataset index
+                dataset_idx = self._doc_id_to_index.get(doc_id)
+                if dataset_idx is None:
+                    logger.warning(
+                        "Invalid key: %s (doc_id) index: %d is out of bounds for size %d",
+                        doc_id,
+                        dataset_idx,
+                        len(dataset),
+                    )
+                    continue
+                doc_contents.append(str(dataset[dataset_idx][CONTENT_COLUMN]))
+                valid_doc_ids.append(doc_id)
 
-            if not valid_indices:
+            if not valid_doc_ids:
                 logger.warning(
                     "No valid documents found for QA '%s' in chunk %d; skipping chunk",
                     qa.question,
@@ -552,7 +597,7 @@ class AtomicQAPipeline(BasePipeline):
 
             formatted_docs = self._format_documents(
                 doc_contents,
-                indices=valid_indices,
+                doc_ids=valid_doc_ids,
             )
 
             if chunk_idx == 0:
@@ -631,7 +676,7 @@ class AtomicQAPipeline(BasePipeline):
             BM25Retriever(dataset=dataset, dataset_name=dataset_name)
             if use_minimal_bm25
             else HybridRetriever(
-                dataset=dataset, dataset_name=dataset_name, rerank_threshold=1.0
+                dataset=dataset, dataset_name=dataset_name
             )
         )
 
@@ -642,23 +687,23 @@ class AtomicQAPipeline(BasePipeline):
                 top_k=max_answer_docs,
             )
 
-            if not qa.doc_indices:
+            if not qa.doc_ids:
                 logger.warning(
                     "QA missing original document index before retrieval; skipping additional docs: %s",
                     qa.question,
                 )
                 continue
 
-            allowed_additional = max(0, max_answer_docs - len(qa.doc_indices))
+            allowed_additional = max(0, max_answer_docs - len(qa.doc_ids))
             if allowed_additional == 0:
                 continue
 
-            original_doc_idx = qa.doc_indices[0]
+            original_doc_id = qa.doc_ids[0]
 
-            seen = set(qa.doc_indices)
+            seen = set(qa.doc_ids)
             new_doc_ids: list[int] = []
             for doc_id in retrieved_doc_ids:
-                if doc_id == original_doc_idx or doc_id in seen:
+                if doc_id == original_doc_id or doc_id in seen:
                     continue
                 seen.add(doc_id)
                 new_doc_ids.append(doc_id)
@@ -666,11 +711,11 @@ class AtomicQAPipeline(BasePipeline):
                     break
 
             if new_doc_ids:
-                qa.doc_indices.extend(new_doc_ids)
+                qa.doc_ids.extend(new_doc_ids)
         logger.info("Supporting documents attached to QA pairs")
 
-    @staticmethod
     def _retrieve_supporting_docs(
+        self,
         retriever: Any,
         question: str,
         top_k: int,
@@ -693,16 +738,20 @@ class AtomicQAPipeline(BasePipeline):
                 except ValueError:
                     continue
             if isinstance(doc_id, int):
-                if doc_id in seen:
+                # Map doc_id to dataset index
+                dataset_idx = self._doc_id_to_index.get(doc_id)
+                if dataset_idx is None:
+                    logger.debug("Doc ID %s not found in mapping, skipping", doc_id)
                     continue
-                seen.add(doc_id)
-                retrieved.append(doc_id)
+                if dataset_idx in seen:
+                    continue
+                seen.add(dataset_idx)
+                retrieved.append(dataset_idx)
                 if len(retrieved) >= top_k:
                     break
         return retrieved
 
-    @staticmethod
-    def _batched(iterable: Iterable[int], size: int) -> Iterable[list[int]]:
+    def _batched(self, iterable: Iterable[int], size: int) -> Iterable[list[int]]:
         if size <= 0:
             raise ValueError("refinement_chunk_size must be positive")
         batch: list[int] = []

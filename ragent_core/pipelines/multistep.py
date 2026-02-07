@@ -118,7 +118,7 @@ class MultiStepQA:
 
     questions: list[str]
     answers: list[str]
-    doc_indices: list[int]
+    doc_ids: list[int]
     info: dict[str, Any] = field(default_factory=dict)
 
 
@@ -130,7 +130,7 @@ class QARecord:
     source_id: int
     question: str
     answer: str
-    doc_indices: list[int]
+    doc_ids: list[int]
     info: dict[str, Any]
 
 
@@ -396,7 +396,7 @@ class MultiStepQAPipeline(BasePipeline):
                 )
                 continue
 
-            doc_indices = item.get("doc_indices", [])
+            doc_ids = item.get("doc_ids", [])
             info = item.get("info") if isinstance(item.get("info"), dict) else {}
 
             source_id = item.get("id", position + 1)
@@ -411,7 +411,7 @@ class MultiStepQAPipeline(BasePipeline):
                     source_id=source_id,
                     question=question,
                     answer=answer,
-                    doc_indices=doc_indices,
+                    doc_ids=doc_ids,
                     info=info,
                 )
             )
@@ -1105,7 +1105,7 @@ class MultiStepQAPipeline(BasePipeline):
                     QA(
                         question=bundle.questions[0],
                         answer=bundle.answers[0],
-                        doc_indices=bundle.doc_indices,
+                        doc_ids=bundle.doc_ids,
                         info=info,
                     )
                 )
@@ -1158,7 +1158,7 @@ class MultiStepQAPipeline(BasePipeline):
                         QA(
                             question=question,
                             answer=answer,
-                            doc_indices=bundle.doc_indices,
+                            doc_ids=bundle.doc_ids,
                             info=info,
                         )
                     )
@@ -1312,7 +1312,7 @@ class MultiStepQAPipeline(BasePipeline):
         """Combine individual QA records into a multi-step QA bundle."""
         questions = [records[idx].question for idx in indices]
         answers = [records[idx].answer for idx in indices]
-        doc_indices = self._merge_doc_indices(records, indices)
+        doc_ids = self._merge_doc_ids(records, indices)
         info: dict[str, Any] = {
             "recipe": recipe,
             "source_ids": [records[idx].source_id for idx in indices],
@@ -1322,12 +1322,12 @@ class MultiStepQAPipeline(BasePipeline):
         return MultiStepQA(
             questions=questions,
             answers=answers,
-            doc_indices=doc_indices,
+            doc_ids=doc_ids,
             info=info,
         )
 
     @staticmethod
-    def _merge_doc_indices(
+    def _merge_doc_ids(
         records: Sequence[QARecord],
         indices: Sequence[int],
     ) -> list[int]:
@@ -1335,7 +1335,7 @@ class MultiStepQAPipeline(BasePipeline):
         merged = list(
             dict.fromkeys(
                 idx
-                for idx in chain.from_iterable(records[i].doc_indices for i in indices)
+                for idx in chain.from_iterable(records[i].doc_ids for i in indices)
             )
         )
         return merged

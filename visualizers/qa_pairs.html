@@ -457,8 +457,8 @@
                         ? answer
                         : JSON.stringify(answer, null, 2);
 
-                const documents = Array.isArray(item.doc_indices)
-                    ? item.doc_indices
+                const documents = Array.isArray(item.doc_ids)
+                    ? item.doc_ids
                     : [];
                 const docsLabel =
                     typeof item.num_docs === "number"

@@ -6,10 +6,10 @@ from typing import Any, Optional, Union
 class RetrievalResult:
     """Result from a retrieval operation."""
 
-    doc_id: Union[int, str]
+    doc_id: int
+    chunk_id: int
     score: float
     text: str
-    document: Optional[dict[str, Any]] = None
 
 
 from .base import BaseRetriever

@@ -94,7 +94,7 @@ Please follow these steps:
   <concept>
     <name>Concept with proper capitalization and formatting</name>
     <importance>important|medium|less_important</importance>
-    <doc_idx>Document index where this concept appears</doc_idx>
+    <doc_id>Document ID where this concept appears</doc_id>
   </concept>
   <!-- Repeat for each concept -->
 </concepts>
@@ -116,7 +116,7 @@ def parse_concepts(text: str, data_source: str) -> list[Concept]:
     concepts = []
 
     # Regex pattern to match concept blocks
-    concept_pattern = r"<concept>\s*<name>(.*?)</name>\s*<importance>(.*?)</importance>\s*<doc_idx>(\d+)</doc_idx>\s*</concept>"
+    concept_pattern = r"<concept>\s*<name>(.*?)</name>\s*<importance>(.*?)</importance>\s*<doc_id>(\d+)</doc_id>\s*</concept>"
 
     # Find all concept matches
     matches = re.findall(concept_pattern, text, re.DOTALL)
@@ -124,7 +124,7 @@ def parse_concepts(text: str, data_source: str) -> list[Concept]:
     for match in matches:
         name = match[0].strip()
         importance = match[1].strip()
-        doc_idx = int(match[2].strip())
+        doc_id = match[2].strip()
 
         # Validate importance level
         if importance not in ["important", "medium", "less_important"]:
@@ -135,7 +135,7 @@ def parse_concepts(text: str, data_source: str) -> list[Concept]:
             name=name,
             importance=importance,
             data_source=data_source,
-            doc_idx=doc_idx,
+            doc_id=int(doc_id),
         )
         concepts.append(concept)
 
@@ -215,7 +215,7 @@ Your final response should only include the XML shown above.
 def extract_batch_qas_from_text(
     text: str,
     *,
-    doc_idx: int,
+    doc_id: int,
     concepts: list[Concept],
 ) -> list[QA]:
     """
@@ -223,7 +223,7 @@ def extract_batch_qas_from_text(
 
     Args:
         text: Text containing batched QA pairs in XML format as produced by the batch question generation prompt.
-        doc_idx: Document index that all QAs relate to.
+        doc_id: Document ID that all QAs relate to.
         concepts: Ordered list of concepts expected in the output.
 
     Returns:
@@ -253,7 +253,7 @@ def extract_batch_qas_from_text(
         qa_map[concept_name] = QA(
             question=question,
             answer="",
-            doc_indices=[doc_idx],
+            doc_ids=[doc_id],
             info={"concept": concept_name},
         )
 

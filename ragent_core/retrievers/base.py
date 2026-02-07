@@ -1,7 +1,7 @@
 import logging
 import re
 import threading
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from xml.sax.saxutils import escape
 
 logger = logging.getLogger(__name__)
@@ -10,82 +10,46 @@ logger = logging.getLogger(__name__)
 class BaseRetriever:
     """Common utilities for retriever tool interfaces."""
 
-    id_field = "id"
-    title_field = "title"
-    text_field = "text"
-
-    _doc_index_by_id: Dict[Any, int]
+    _documents: Dict[Any, dict]
     _search_lock: Optional[threading.Lock] = None
 
-    def _iter_corpus(self) -> Iterable[Tuple[int, Mapping[str, Any]]]:
-        """Yield (index, document) pairs for the retriever corpus."""
-        raise NotImplementedError
-
-    def _get_doc_by_index(self, index: int) -> Mapping[str, Any]:
-        """Return a document by integer index."""
-        raise NotImplementedError
-
-    def _get_doc_id(self, doc: Mapping[str, Any], index: int) -> Any:
-        return doc.get(self.id_field, index)
-
-    def _get_doc_title(self, doc: Mapping[str, Any]) -> str:
-        return doc.get(self.title_field, "") or ""
-
-    def _get_doc_text(self, doc: Mapping[str, Any]) -> str:
-        return doc.get(self.text_field, "") or ""
-
-    def _ensure_doc_index_by_id(self) -> None:
-        if getattr(self, "_doc_index_by_id", None) is None:
-            self._doc_index_by_id = {}
-        if self._doc_index_by_id:
-            return
-
-        for index, doc in self._iter_corpus():
-            doc_id = self._get_doc_id(doc, index)
-            if doc_id not in self._doc_index_by_id:
-                self._doc_index_by_id[doc_id] = index
+    @property
+    def documents(self) -> Dict[Any, dict]:
+        """Return corpus documents keyed by document ID."""
+        return getattr(self, "_documents", {})
 
     def _get_search_lock(self) -> threading.Lock:
         if self._search_lock is None:
             self._search_lock = threading.Lock()
         return self._search_lock
 
-    def _default_snippet(self, text: str, max_words: int = 50) -> str:
-        words = text.split()[:max_words]
-        return " ".join(words) + "..." if words else ""
-
-    def search_tool(self, queries: List[str]) -> Dict[str, List[Dict[str, str]]]:
+    def search_tool(self, queries: List[str]) -> str:
         """
         Search the indexed corpus for the most relevant documents.
+
+        Returns an XML-formatted string with search results grouped by query.
         """
         logger.debug("Search tool called with queries: %s", queries)
-        self._ensure_doc_index_by_id()
+
         with self._get_search_lock():
-            all_results: Dict[str, List[Dict[str, str]]] = {}
+            xml_parts = ["<search_results>"]
             for query in queries:
                 retrieval_results = self.retrieve(query, top_k=10)
 
-                formatted_results = []
+                xml_parts.append(f"<query value=\"{escape(query)}\">")
                 for res in retrieval_results:
-                    row_index = self._doc_index_by_id.get(res.doc_id)
-                    if row_index is None and isinstance(res.doc_id, int):
-                        row_index = self._doc_index_by_id.get(str(res.doc_id))
-                    if row_index is None:
-                        continue
+                    doc = self.documents.get(res.doc_id, {})
+                    doc_id = doc.get("doc_id", res.doc_id)
+                    title = doc.get("title", "") or ""
 
-                    doc = self._get_doc_by_index(row_index)
-                    text = self._get_doc_text(doc)
-                    snippet = res.text or self._default_snippet(text)
-
-                    formatted_results.append(
-                        {
-                            "id": res.doc_id,
-                            "title": self._get_doc_title(doc),
-                            "snippet": snippet,
-                        }
-                    )
-                all_results[query] = formatted_results
-            return all_results
+                    xml_parts.append("<result>")
+                    xml_parts.append(f"<id>{escape(str(doc_id))}</id>")
+                    xml_parts.append(f"<title>{escape(title)}</title>")
+                    xml_parts.append(f"<snippet>{escape(res.text)}</snippet>")
+                    xml_parts.append("</result>")
+                xml_parts.append("</query>")
+            xml_parts.append("</search_results>")
+            return "\n".join(xml_parts)
 
     def read_tool(self, doc_ids: List[int]) -> str:
         """
@@ -95,19 +59,13 @@ class BaseRetriever:
             doc_ids: List of document IDs. If more than 3 IDs are provided, only the first 3 will be processed.
         """
         logger.debug("Read tool called with doc_ids: %s", doc_ids)
-        self._ensure_doc_index_by_id()
 
         xml_parts = ["<documents>"]
         # Limit to maximum 3 documents to avoid token rate limits
         for doc_id in doc_ids[:3]:
-            row_index = self._doc_index_by_id.get(doc_id)
-
-            if row_index is None and isinstance(doc_id, int):
-                row_index = self._doc_index_by_id.get(str(doc_id))
-
-            if row_index is not None:
-                doc = self._get_doc_by_index(row_index)
-                text = self._get_doc_text(doc)
+            doc = self.documents.get(doc_id, {})
+            if doc is not None:
+                text = doc.get("text", "") or ""
                 content = escape(text or "")
             else:
                 content = escape(
@@ -177,13 +135,13 @@ class BaseRetriever:
                 return match.start() if match else -1
 
         scored_results: List[tuple[int, int, int]] = []
-        for row_index, doc in self._iter_corpus():
-            text = self._get_doc_text(doc)
+        for doc in self.documents.values():
+            text = doc.get("text", "") or ""
             count = match_count(text)
             if count <= 0:
                 continue
             first_idx = find_first(text)
-            scored_results.append((count, -first_idx, row_index))
+            scored_results.append((count, -first_idx, doc.get("id")))
 
         if not scored_results:
             return ""
@@ -192,9 +150,9 @@ class BaseRetriever:
         top = scored_results[:max_results]
 
         xml_parts = []
-        for _, neg_first_idx, row_index in top:
-            doc = self._get_doc_by_index(row_index)
-            text = self._get_doc_text(doc)
+        for _, neg_first_idx, doc_id in top:
+            doc = self.documents[doc_id]
+            text = doc.get("text", "")
             first_idx = -neg_first_idx
             if first_idx < 0:
                 snippet = ""
@@ -204,8 +162,7 @@ class BaseRetriever:
                 end = min(len(text), first_idx + half)
                 snippet = text[start:end]
 
-            doc_id = self._get_doc_id(doc, row_index)
-            title = self._get_doc_title(doc)
+            title = doc.get("title", "") or ""
 
             xml_parts.append("<match>")
             xml_parts.append(f"<id>{escape(str(doc_id))}</id>")

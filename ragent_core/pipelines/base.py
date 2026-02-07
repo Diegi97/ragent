@@ -37,8 +37,8 @@ def _qa_to_dict(qa: Any, idx: int) -> dict:
     """Convert a QA object to a serializable dictionary."""
     record: dict[str, Any] = {
         "id": idx,
-        "doc_indices": list(qa.doc_indices),
-        "num_docs": len(qa.doc_indices),
+        "doc_ids": list(qa.doc_ids),
+        "num_docs": len(qa.doc_ids),
     }
 
     if hasattr(qa, "questions"):
@@ -225,7 +225,7 @@ class CheckpointManager:
             qa = QA(
                 question=question,
                 answer=answer,
-                doc_indices=item.get("doc_indices", []),
+                doc_ids=item.get("doc_ids", []),
                 info=item.get("info", {}),
             )
             qas.append(qa)

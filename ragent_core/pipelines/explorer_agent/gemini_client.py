@@ -25,7 +25,7 @@ class GeminiClient:
         ).aio
         self._retriever = retriever
 
-    def search_tool(self, queries: List[str]) -> dict:
+    def search_tool(self, queries: List[str]) -> str:
         """
         Search corpus using BM25 + ColBERT (RRF) with mxbai-rerank-v2 reranking.
 
@@ -33,7 +33,7 @@ class GeminiClient:
             queries: List of search query strings.
 
         Returns:
-            Dict mapping each query to list of top 10 results, each with "id", "title", "snippet" (chunk text).
+            XML-formatted string with search results grouped by query.
         """
         return self._retriever.search_tool(queries)
 
@@ -121,6 +121,8 @@ class GeminiClient:
             config.automatic_function_calling = types.AutomaticFunctionCallingConfig(
                 maximum_remote_calls=100
             )
+            if model == "gemini-2.5-flash-lite":
+                config.thinking_config = types.ThinkingConfig(thinking_budget=-1) # automatic thinking budget
 
             response = await self._client.models.generate_content(
                 model=model, contents=content, config=config
@@ -152,7 +154,7 @@ class GeminiClient:
                         QA(
                             question=part.function_call.args.get("question"),
                             answer=part.function_call.args.get("answer"),
-                            doc_indices=part.function_call.args.get("doc_ids", []),
+                            doc_ids=part.function_call.args.get("doc_ids", []),
                             info={},
                         )
                     )

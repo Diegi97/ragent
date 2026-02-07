@@ -354,16 +354,16 @@ class ExplorerAgentQAPipeline(BasePipeline):
     def _format_qa_pairs_for_prompt(qa_pairs: Sequence[QA]) -> str:
         lines: list[str] = ["<qa_pairs>"]
         for idx, qa in enumerate(qa_pairs, start=1):
-            doc_indices = (
-                " ".join(str(i) for i in qa.doc_indices)
-                if qa.doc_indices
+            doc_ids = (
+                " ".join(str(i) for i in qa.doc_ids)
+                if qa.doc_ids
                 else "No document IDs available"
             )
             lines.append("  <qa>")
             lines.append(f"    <id>{idx}</id>")
             lines.append(f"    <question>{qa.question.strip()}</question>")
             lines.append(f"    <answer>{qa.answer.strip()}</answer>")
-            lines.append(f"    <doc_indices>{doc_indices}</doc_indices>")
+            lines.append(f"    <doc_ids>{doc_ids}</doc_ids>")
             lines.append("  </qa>")
         lines.append("</qa_pairs>")
         return "\n".join(lines)
@@ -387,8 +387,8 @@ class ExplorerAgentQAPipeline(BasePipeline):
 
         merged_doc_ids = set()
         for qa in qa_pairs:
-            if qa and qa.doc_indices:
-                merged_doc_ids.update(qa.doc_indices)
+            if qa and qa.doc_ids:
+                merged_doc_ids.update(qa.doc_ids)
         merged_doc_ids = list(merged_doc_ids)
 
         qa_pairs_prompt = self._format_qa_pairs_for_prompt(qa_pairs)
@@ -416,14 +416,14 @@ class ExplorerAgentQAPipeline(BasePipeline):
             {
                 "question": qa.question,
                 "answer": qa.answer,
-                "doc_indices": qa.doc_indices if qa.doc_indices else [],
+                "doc_ids": qa.doc_ids if qa.doc_ids else [],
             }
             for qa in qa_pairs
         ]
         return QA(
             question=query,
             answer=answer,
-            doc_indices=merged_doc_ids,  # Use the merged doc_ids
+            doc_ids=merged_doc_ids,  # Use the merged doc_ids
             info=info,
         )
 

@@ -60,7 +60,8 @@ You have access to the following tools. You must use them to gather ground-truth
 
 1.  `search_tool(queries: List[str])`: 
     * Accepts a list of search queries. 
-    * Returns a list of top 10 chunk results (Doc ID + Title + chunk text).
+    * Returns an XML-formatted string with top 10 chunk results per query:
+      `<search_results><query value="..."><result><id>...</id><title>...</title><snippet>...</snippet></result>...</query>...</search_results>`
     * **How it works:** Uses BM25, semantic embeddings and reranking to find relevant documents.
     * **Important:** Submit queries about **different topics or aspects**, NOT multiple variations of the same query.
         * Bad: `["Tesla battery", "Tesla batteries", "Tesla battery technology", "what are Tesla batteries"]` (redundant variations)
@@ -185,7 +186,8 @@ All generated QA pairs must be written in the **same language** as the Entity an
 
 ## Available Tools
 1.  `search_tool(queries: List[str])`:
-    * Returns a list of top 10 chunk results (Doc ID + Title + chunk text).
+    * Returns an XML-formatted string with top 10 chunk results per query:
+      `<search_results><query value="..."><result><id>...</id><title>...</title><snippet>...</snippet></result>...</query>...</search_results>`
     * **How it works:** Uses BM25, semantic embeddings and reranking to find relevant documents.
     * **Important:** Submit queries about **different topics or aspects**, NOT multiple variations of the same query.
         * Bad: `["Raptor engine", "SpaceX Raptor", "what is Raptor engine", "Raptor engine specs"]` (redundant variations)

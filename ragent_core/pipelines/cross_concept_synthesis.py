@@ -51,8 +51,8 @@ class CrossConceptSynthesisConfig:
 
 
 class _NoOpRetriever:
-    def search_tool(self, queries: list[str]) -> dict:
-        return {query: [] for query in queries}
+    def search_tool(self, queries: list[str]) -> str:
+        return "<search_results></search_results>"
 
     def text_scan_tool(
         self,
@@ -110,7 +110,7 @@ class CrossConceptSynthesisPipeline(BasePipeline):
         return QA(
             question=question,
             answer=answer,
-            doc_indices=record.get("doc_indices", []),
+            doc_ids=record.get("doc_ids", []),
             info=record.get("info", {}) or {},
         )
 
@@ -119,7 +119,7 @@ class CrossConceptSynthesisPipeline(BasePipeline):
         return {
             "question": qa.question,
             "answer": qa.answer,
-            "doc_indices": list(qa.doc_indices),
+            "doc_ids": list(qa.doc_ids),
             "info": qa.info,
         }
 
@@ -218,13 +218,13 @@ class CrossConceptSynthesisPipeline(BasePipeline):
         source_qas: list[dict[str, Any]] = []
         for concept in concept_group:
             for qa in qas_by_concept.get(concept, []):
-                merged_doc_ids.update(qa.doc_indices or [])
+                merged_doc_ids.update(qa.doc_ids or [])
                 source_qas.append(
                     {
                         "concept": qa.info.get("concept"),
                         "question": qa.question,
                         "answer": qa.answer,
-                        "doc_indices": list(qa.doc_indices),
+                        "doc_ids": list(qa.doc_ids),
                     }
                 )
 
@@ -236,7 +236,7 @@ class CrossConceptSynthesisPipeline(BasePipeline):
         return QA(
             question=query,
             answer=answer,
-            doc_indices=sorted(merged_doc_ids),
+            doc_ids=sorted(merged_doc_ids),
             info=info,
         )
 

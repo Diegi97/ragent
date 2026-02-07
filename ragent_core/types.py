@@ -8,7 +8,7 @@ class QA:
 
     question: str
     answer: str
-    doc_indices: list[int] = field(default_factory=list)
+    doc_ids: list[int] = field(default_factory=list)
     info: dict[str, Any] = field(default_factory=dict)
 
 
@@ -18,6 +18,6 @@ class Concept:
 
     name: str
     data_source: str
-    doc_idx: int
+    doc_id: int
     importance: str = ""
     info: dict[str, Any] = field(default_factory=dict)
