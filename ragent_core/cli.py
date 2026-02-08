@@ -94,9 +94,11 @@ from ragent_core.pipelines.entity_fact_qa import (
     DEFAULT_QA_PAIRS_PER_ENTITY as DEFAULT_ENTITY_FACT_QA_PAIRS_PER_ENTITY,
     DEFAULT_SEED as DEFAULT_ENTITY_FACT_SEED,
     DEFAULT_TRAIN_SIZE as DEFAULT_ENTITY_FACT_TRAIN_SIZE,
+    EntityFactMemoryRecord,
     EntityFactQAConfig,
     EntityFactQAPipeline,
 )
+from ragent_core.pipelines.prompts.entity_fact_prompts import ExtractedFact
 from ragent_core.types import QA
 
 
@@ -253,6 +255,121 @@ def _save_split_output(
         json.dump(metadata, f, ensure_ascii=False, indent=2)
 
     return train_path, eval_path, metadata_path
+
+
+def _entity_fact_record_to_dict(record: EntityFactMemoryRecord) -> dict[str, Any]:
+    return {
+        "entity_name": record.entity_name,
+        "data_source": record.data_source,
+        "concept_doc_id": int(record.concept_doc_id),
+        "concept_importance": record.concept_importance,
+        "entity_doc_ids": [int(doc_id) for doc_id in record.entity_doc_ids],
+        "facts": [
+            {
+                "fact_id": int(fact.fact_id),
+                "statement": fact.statement,
+                "doc_ids": [int(doc_id) for doc_id in fact.doc_ids],
+            }
+            for fact in record.facts
+        ],
+    }
+
+
+def _entity_fact_record_from_dict(payload: dict[str, Any]) -> EntityFactMemoryRecord:
+    facts_payload = payload.get("facts", [])
+    if not isinstance(facts_payload, list):
+        raise ValueError("Expected 'facts' to be a list in entity fact payload")
+
+    facts = [
+        ExtractedFact(
+            statement=str(item.get("statement", "")),
+            doc_ids=[int(doc_id) for doc_id in item.get("doc_ids", [])],
+            fact_id=int(item.get("fact_id", 0)),
+        )
+        for item in facts_payload
+        if isinstance(item, dict)
+    ]
+    return EntityFactMemoryRecord(
+        entity_name=str(payload.get("entity_name", "")),
+        data_source=str(payload.get("data_source", "")),
+        concept_doc_id=int(payload.get("concept_doc_id", 0)),
+        concept_importance=str(payload.get("concept_importance", "")),
+        entity_doc_ids=[int(doc_id) for doc_id in payload.get("entity_doc_ids", [])],
+        facts=facts,
+    )
+
+
+def _resolve_entity_facts_output_paths(
+    dataset_id: str, output_path: Optional[str]
+) -> tuple[Path, Path, str]:
+    if output_path:
+        target = Path(output_path)
+        if target.suffix:
+            run_dir = target.parent
+            entity_facts_path = target
+        else:
+            run_dir = target
+            entity_facts_path = run_dir / "entity_facts.json"
+        run_identifier = run_dir.name
+    else:
+        run_identifier = _generate_run_identifier("qa-entity-fact")
+        run_dir = Path("data") / dataset_id / run_identifier
+        entity_facts_path = run_dir / "entity_facts.json"
+
+    metadata_path = run_dir / "metadata.json"
+    return entity_facts_path, metadata_path, run_identifier
+
+
+def _resolve_entity_facts_input_path(entity_facts_path: str) -> Path:
+    path = Path(entity_facts_path)
+    if path.is_dir():
+        candidate = path / "entity_facts.json"
+        if not candidate.exists():
+            raise FileNotFoundError(
+                f"Expected entity facts file at '{candidate}', but it does not exist"
+            )
+        return candidate
+    return path
+
+
+def _load_entity_fact_records(
+    entity_facts_path: Path,
+) -> tuple[list[EntityFactMemoryRecord], dict[str, Any]]:
+    if not entity_facts_path.exists():
+        raise FileNotFoundError(f"Expected file at '{entity_facts_path}'")
+
+    with entity_facts_path.open("r", encoding="utf-8") as fp:
+        payload = json.load(fp)
+
+    metadata: dict[str, Any] = {}
+    records_payload: list[Any]
+    if isinstance(payload, dict):
+        metadata = dict(payload.get("metadata", {}))
+        records_payload = payload.get("entity_facts", [])
+    elif isinstance(payload, list):
+        records_payload = payload
+    else:
+        raise ValueError(
+            "Entity facts payload must be a list or dict with an 'entity_facts' key"
+        )
+
+    if not isinstance(records_payload, list):
+        raise ValueError("Expected 'entity_facts' to be a list")
+
+    records: list[EntityFactMemoryRecord] = []
+    for index, item in enumerate(records_payload, start=1):
+        if not isinstance(item, dict):
+            raise ValueError(
+                f"Invalid entity fact record at position {index}: expected object"
+            )
+        record = _entity_fact_record_from_dict(item)
+        if not record.entity_name:
+            continue
+        if not record.facts:
+            continue
+        records.append(record)
+
+    return records, metadata
 
 
 def _load_json_records(path: Path) -> list[dict]:
@@ -945,6 +1062,270 @@ def gen_entity_fact(
     return _run_pipeline(pipeline, config, output_path)
 
 
+def gen_entity_fact_memory(
+    data_source: str,
+    llm: str = DEFAULT_ENTITY_FACT_LLM_CLIENT,
+    num_entities: int = DEFAULT_ENTITY_FACT_NUM_ENTITIES,
+    concept_model: str = DEFAULT_ENTITY_FACT_CONCEPT_MODEL_ID,
+    fact_model: str = DEFAULT_ENTITY_FACT_MODEL_ID,
+    seed: int = DEFAULT_ENTITY_FACT_SEED,
+    sem: int = DEFAULT_MAX_CONCURRENT_REQUESTS_ENTITY_FACT,
+    fact_refinement_chunk_size: int = DEFAULT_ENTITY_FACT_REFINEMENT_CHUNK_SIZE,
+    max_docs_per_entity: int = DEFAULT_ENTITY_FACT_MAX_DOCS_PER_ENTITY,
+    output_path: Optional[str] = None,
+    use_bm25: bool = False,
+    use_lite_retriever: bool = False,
+) -> dict:
+    """
+    Generate and persist entity concepts + grounded facts for later QA generation.
+
+    Args:
+        data_source: Data source identifier.
+        llm: LLM client to use ('gemini' or 'openai').
+        num_entities: Number of sampled entities/concepts.
+        concept_model: Model used for entity sampling.
+        fact_model: Model used for iterative fact extraction/refinement.
+        seed: Random seed.
+        sem: Maximum concurrent LLM calls.
+        fact_refinement_chunk_size: Number of documents processed per refinement step.
+        max_docs_per_entity: Maximum number of documents to retrieve per entity.
+        output_path: Optional output file/directory override.
+        use_bm25: If True, use BM25 retriever.
+        use_lite_retriever: If True, use lightweight HybridRetriever models.
+    """
+    _configure_logging()
+    logger = logging.getLogger(__name__)
+
+    pipeline = EntityFactQAPipeline()
+    config = EntityFactQAConfig(
+        data_source=data_source,
+        llm_client=llm,
+        num_entities=num_entities,
+        qa_pairs_per_entity=DEFAULT_ENTITY_FACT_QA_PAIRS_PER_ENTITY,
+        concept_model_id=concept_model,
+        fact_model_id=fact_model,
+        qa_model_id=DEFAULT_ENTITY_FACT_QA_MODEL_ID,
+        seed=seed,
+        max_concurrent_requests=sem,
+        fact_refinement_chunk_size=fact_refinement_chunk_size,
+        complex_pair_ratio=DEFAULT_ENTITY_FACT_COMPLEX_PAIR_RATIO,
+        max_qa_generation_attempts=DEFAULT_ENTITY_FACT_MAX_QA_ATTEMPTS,
+        max_docs_per_entity=max_docs_per_entity,
+        enable_train_eval_split=False,
+        train_size=DEFAULT_ENTITY_FACT_TRAIN_SIZE,
+        eval_size=DEFAULT_ENTITY_FACT_EVAL_SIZE,
+        use_bm25=use_bm25,
+        use_lite_retriever=use_lite_retriever,
+    )
+
+    entity_facts, data_source_description = asyncio.run(
+        pipeline.generate_entity_facts(config)
+    )
+
+    entity_facts_path, metadata_path, run_identifier = _resolve_entity_facts_output_paths(
+        data_source, output_path
+    )
+    entity_facts_path.parent.mkdir(parents=True, exist_ok=True)
+    metadata = {
+        "created_at": datetime.now().isoformat(),
+        "run_identifier": run_identifier,
+        "dataset_id": data_source,
+        "pipeline": {
+            "name": "qa/entity_fact_memory",
+            "description": (
+                "Entity concept and fact generation stage from the entity-fact pipeline"
+            ),
+        },
+        "models": {
+            "concept": concept_model,
+            "fact_extraction": fact_model,
+        },
+        "parameters": {
+            "num_entities": num_entities,
+            "seed": seed,
+            "max_concurrent_requests": sem,
+            "fact_refinement_chunk_size": fact_refinement_chunk_size,
+            "max_docs_per_entity": max_docs_per_entity,
+            "use_bm25": use_bm25,
+            "use_lite_retriever": use_lite_retriever,
+        },
+        "data_source_description": data_source_description,
+        "num_entities_with_facts": len(entity_facts),
+        "output": {
+            "entity_facts_path": str(entity_facts_path),
+            "metadata_path": str(metadata_path),
+        },
+    }
+
+    with entity_facts_path.open("w", encoding="utf-8") as fp:
+        json.dump(
+            {
+                "metadata": metadata,
+                "entity_facts": [
+                    _entity_fact_record_to_dict(record) for record in entity_facts
+                ],
+            },
+            fp,
+            ensure_ascii=False,
+            indent=2,
+        )
+    with metadata_path.open("w", encoding="utf-8") as fp:
+        json.dump(metadata, fp, ensure_ascii=False, indent=2)
+
+    resolved_entity_facts_path = str(entity_facts_path.resolve())
+    resolved_metadata_path = str(metadata_path.resolve())
+    logger.info("Saved entity facts to %s", resolved_entity_facts_path)
+    logger.info("Saved stage metadata to %s", resolved_metadata_path)
+
+    return {
+        "num_entities_with_facts": len(entity_facts),
+        "entity_facts_path": resolved_entity_facts_path,
+        "metadata_path": resolved_metadata_path,
+        "run_identifier": run_identifier,
+    }
+
+
+def gen_entity_fact_qas(
+    entity_facts_path: str,
+    data_source: Optional[str] = None,
+    llm: str = DEFAULT_ENTITY_FACT_LLM_CLIENT,
+    qa_pairs_per_entity: int = DEFAULT_ENTITY_FACT_QA_PAIRS_PER_ENTITY,
+    qa_model: str = DEFAULT_ENTITY_FACT_QA_MODEL_ID,
+    seed: int = DEFAULT_ENTITY_FACT_SEED,
+    sem: int = DEFAULT_MAX_CONCURRENT_REQUESTS_ENTITY_FACT,
+    complex_pair_ratio: float = DEFAULT_ENTITY_FACT_COMPLEX_PAIR_RATIO,
+    max_qa_generation_attempts: int = DEFAULT_ENTITY_FACT_MAX_QA_ATTEMPTS,
+    output_path: Optional[str] = None,
+    enable_train_eval_split: bool = False,
+    train_size: float | int | None = DEFAULT_ENTITY_FACT_TRAIN_SIZE,
+    eval_size: float | int | None = DEFAULT_ENTITY_FACT_EVAL_SIZE,
+) -> dict:
+    """
+    Generate QA pairs from a previously saved entity-facts artifact.
+
+    Args:
+        entity_facts_path: Path to `entity_facts.json` or its containing directory.
+        data_source: Optional data source override. Defaults to value from artifact metadata.
+        llm: LLM client to use ('gemini' or 'openai').
+        qa_pairs_per_entity: Number of QA pairs to generate per saved entity.
+        qa_model: Model used for QA generation from facts.
+        seed: Random seed.
+        sem: Maximum concurrent LLM calls.
+        complex_pair_ratio: Fraction of QA pairs that should be complex.
+        max_qa_generation_attempts: Retries for QA generation per entity.
+        output_path: Optional output file/directory override. Defaults to sibling `data.json`.
+        enable_train_eval_split: Whether to save train/eval splits.
+        train_size: Train split size if splitting is enabled.
+        eval_size: Eval split size if splitting is enabled.
+        use_bm25: If True, use BM25 retriever for pipeline runtime initialization.
+        use_lite_retriever: If True, use lightweight HybridRetriever models.
+    """
+    _configure_logging()
+    logger = logging.getLogger(__name__)
+
+    resolved_entity_facts_path = _resolve_entity_facts_input_path(entity_facts_path)
+    entity_facts, stage_metadata = _load_entity_fact_records(resolved_entity_facts_path)
+    if not entity_facts:
+        raise ValueError(f"No valid entity facts found in '{resolved_entity_facts_path}'")
+
+    resolved_data_source = data_source or stage_metadata.get("dataset_id")
+    if not resolved_data_source:
+        resolved_data_source = entity_facts[0].data_source
+    if not resolved_data_source:
+        raise ValueError(
+            "Unable to infer data_source. Provide --data_source explicitly."
+        )
+
+    pipeline = EntityFactQAPipeline()
+    config = EntityFactQAConfig(
+        data_source=str(resolved_data_source),
+        llm_client=llm,
+        num_entities=len(entity_facts),
+        qa_pairs_per_entity=qa_pairs_per_entity,
+        concept_model_id=DEFAULT_ENTITY_FACT_CONCEPT_MODEL_ID,
+        fact_model_id=DEFAULT_ENTITY_FACT_MODEL_ID,
+        qa_model_id=qa_model,
+        seed=seed,
+        max_concurrent_requests=sem,
+        fact_refinement_chunk_size=DEFAULT_ENTITY_FACT_REFINEMENT_CHUNK_SIZE,
+        complex_pair_ratio=complex_pair_ratio,
+        max_qa_generation_attempts=max_qa_generation_attempts,
+        max_docs_per_entity=DEFAULT_ENTITY_FACT_MAX_DOCS_PER_ENTITY,
+        enable_train_eval_split=enable_train_eval_split,
+        train_size=train_size,
+        eval_size=eval_size,
+    )
+
+    qas = asyncio.run(
+        pipeline.generate_qas_from_entity_facts(
+            config=config,
+            entity_facts=entity_facts,
+            data_source_description=stage_metadata.get("data_source_description"),
+        )
+    )
+    logger.info("Generated %d QA pairs from saved entity facts", len(qas))
+
+    if output_path is None:
+        output_path = str(resolved_entity_facts_path.with_name("data.json"))
+
+    data_path, metadata_path, run_identifier = _resolve_output_paths(
+        str(resolved_data_source),
+        "qa/entity_fact",
+        output_path,
+    )
+    metadata = _build_metadata_dict(
+        pipeline=pipeline,
+        config=config,
+        qas=qas,
+        dataset_id=str(resolved_data_source),
+        data_path=data_path,
+        metadata_path=metadata_path,
+        run_identifier=run_identifier,
+    )
+    metadata["input"] = {
+        "entity_facts_path": str(resolved_entity_facts_path),
+        "num_entities_with_facts": len(entity_facts),
+    }
+
+    split_enabled = config.enable_train_eval_split
+    if split_enabled:
+        train_qas, eval_qas = pipeline.split_train_eval(
+            qas,
+            eval_size=config.eval_size,
+            train_size=config.train_size,
+            seed=config.seed,
+        )
+        train_file, eval_file, metadata_file = _save_split_output(
+            train_qas,
+            eval_qas,
+            data_path,
+            metadata_path,
+            metadata,
+        )
+        saved_to = str(train_file.resolve())
+        eval_saved_to = str(eval_file.resolve())
+        metadata_file = str(metadata_file.resolve())
+        logger.info("Saved train split (%d pairs) to %s", len(train_qas), saved_to)
+        logger.info("Saved eval split (%d pairs) to %s", len(eval_qas), eval_saved_to)
+        logger.info("Saved pipeline metadata to %s", metadata_file)
+    else:
+        data_file, metadata_file = _save_output(qas, data_path, metadata_path, metadata)
+        saved_to = str(data_file.resolve())
+        metadata_file = str(metadata_file.resolve())
+        eval_saved_to = None
+        logger.info("Saved QA pairs to %s", saved_to)
+        logger.info("Saved pipeline metadata to %s", metadata_file)
+
+    return {
+        "num_pairs": len(qas),
+        "output_path": saved_to,
+        "metadata_path": metadata_file,
+        "eval_path": eval_saved_to if split_enabled else None,
+        "run_identifier": run_identifier,
+        "entity_facts_path": str(resolved_entity_facts_path.resolve()),
+    }
+
+
 class RAGentCLI:
     def __init__(self) -> None:
         self.data = {
@@ -952,6 +1333,8 @@ class RAGentCLI:
             "compose_multistep": compose_multistep,
             "gen_explorer_agent": gen_explorer_agent,
             "gen_entity_fact": gen_entity_fact,
+            "gen_entity_fact_memory": gen_entity_fact_memory,
+            "gen_entity_fact_qas": gen_entity_fact_qas,
             "cross_concept_synthesis": cross_concept_synthesis,
             "upload_to_hf": upload_to_hf_dataset,
         }

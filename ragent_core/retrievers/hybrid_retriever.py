@@ -69,9 +69,9 @@ class HybridRetriever(BaseRetriever):
     def _init_reranker(self) -> None:
         logger.info("Loading mxbai reranker...")
         if "v1" in self.reranker_model_name:
-            self._reranker = MxbaiRerankV1(self.reranker_model_name)
+            self._reranker = MxbaiRerankV1(self.reranker_model_name, device=self.device)
         else:
-            self._reranker = MxbaiRerankV2(self.reranker_model_name)
+            self._reranker = MxbaiRerankV2(self.reranker_model_name, device=self.device)
         logger.info("mxbai reranker loaded.")
 
     def _init_colbert_index(self, override_index: bool) -> None:
@@ -86,6 +86,7 @@ class HybridRetriever(BaseRetriever):
             index_folder="pylate-index",
             index_name=self._index_name,
             override=override_index,
+            device=self.device
         )
         self._colbert_retriever = retrieve.ColBERT(index=self._colbert_index)
 

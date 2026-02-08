@@ -22,6 +22,7 @@ from ragent_core.pipelines.prompts.atomic_prompts import (
     format_prompt_with_description,
     parse_concepts,
 )
+from ragent_core.pipelines.cross_concept_synthesis import _NoOpRetriever
 from ragent_core.pipelines.prompts.entity_fact_prompts import (
     FACT_EXTRACTION_PROMPT,
     FACT_REFINEMENT_PROMPT,
@@ -53,6 +54,18 @@ DEFAULT_SEED = 42
 DEFAULT_ENABLE_TRAIN_EVAL_SPLIT = False
 DEFAULT_TRAIN_SIZE = 0.9
 DEFAULT_EVAL_SIZE = 0.1
+
+
+@dataclass
+class EntityFactMemoryRecord:
+    """Persistable entity memory record produced before QA generation."""
+
+    entity_name: str
+    data_source: str
+    concept_doc_id: int
+    concept_importance: str
+    entity_doc_ids: list[int]
+    facts: list[ExtractedFact]
 
 
 @dataclass
@@ -102,15 +115,26 @@ class EntityFactQAPipeline(BasePipeline):
         raise ValueError(f"Unsupported llm_client: {config.llm_client}")
 
     async def generate(self, config: EntityFactQAConfig) -> list[QA]:
-        self._validate_config(config)
-
-        dataset, dataset_name, data_source_description = self._load_dataset(
-            config.data_source
+        entity_facts, data_source_description = await self.generate_entity_facts(config)
+        qas = await self.generate_qas_from_entity_facts(
+            config=config,
+            entity_facts=entity_facts,
+            data_source_description=data_source_description,
         )
-        retriever = self._init_retriever(config, dataset, dataset_name)
-        self._init_llm_client(config, retriever)
-        semaphore = asyncio.Semaphore(config.max_concurrent_requests)
-        rng = random.Random(config.seed)
+        logger.info(
+            "Entity fact pipeline complete: generated %d QA pairs across %d entities",
+            len(qas),
+            len(entity_facts),
+        )
+        return qas
+
+    async def generate_entity_facts(
+        self, config: EntityFactQAConfig
+    ) -> tuple[list[EntityFactMemoryRecord], Optional[str]]:
+        self._validate_config(config)
+        dataset, retriever, semaphore, rng, data_source_description = (
+            self._build_generation_context(config)
+        )
 
         concepts = await self._generate_concepts(
             dataset=dataset,
@@ -124,10 +148,10 @@ class EntityFactQAPipeline(BasePipeline):
 
         if not concepts:
             logger.warning("No concepts/entities generated; returning empty output.")
-            return []
+            return [], data_source_description
 
         tasks = [
-            self._process_entity(
+            self._extract_entity_facts(
                 concept=concept,
                 retriever=retriever,
                 config=config,
@@ -138,26 +162,62 @@ class EntityFactQAPipeline(BasePipeline):
         ]
         entity_results = await tqdm.gather(
             *tasks,
-            desc="Processing entities",
+            desc="Extracting entity facts",
             total=len(tasks),
         )
-        qas = [qa for qa_list in entity_results for qa in qa_list]
+        entity_facts = [record for record in entity_results if record is not None]
 
         logger.info(
-            "Entity fact pipeline complete: generated %d QA pairs across %d entities",
-            len(qas),
-            len(concepts),
+            "Entity fact stage complete: retained %d entities with extracted facts",
+            len(entity_facts),
         )
-        return qas
+        return entity_facts, data_source_description
 
-    async def _process_entity(
+    async def generate_qas_from_entity_facts(
+        self,
+        config: EntityFactQAConfig,
+        entity_facts: Sequence[EntityFactMemoryRecord],
+        data_source_description: Optional[str] = None,
+    ) -> list[QA]:
+        self._validate_config(config)
+        if not entity_facts:
+            logger.warning(
+                "No entity facts provided for QA generation; returning empty output."
+            )
+            return []
+
+        if self._llm is None or data_source_description is None:
+            dataset, dataset_name, data_source_description = self._load_dataset(
+                config.data_source
+            )
+            retriever = _NoOpRetriever()
+            self._init_llm_client(config, retriever)
+
+        semaphore = asyncio.Semaphore(config.max_concurrent_requests)
+        tasks = [
+            self._generate_qas_for_entity_memory(
+                entity_fact=entity_fact,
+                config=config,
+                semaphore=semaphore,
+                data_source_description=data_source_description,
+            )
+            for entity_fact in entity_facts
+        ]
+        entity_results = await tqdm.gather(
+            *tasks,
+            desc="Generating QAs",
+            total=len(tasks),
+        )
+        return [qa for qa_list in entity_results for qa in qa_list]
+
+    async def _extract_entity_facts(
         self,
         concept: Concept,
         retriever: Any,
         config: EntityFactQAConfig,
         semaphore: asyncio.Semaphore,
         data_source_description: Optional[str],
-    ) -> list[QA]:
+    ) -> Optional[EntityFactMemoryRecord]:
         try:
             entity_doc_ids = self._retrieve_entity_doc_ids(
                 retriever,
@@ -166,7 +226,7 @@ class EntityFactQAPipeline(BasePipeline):
             )
             if not entity_doc_ids:
                 logger.warning("No documents retrieved for entity '%s'", concept.name)
-                return []
+                return None
 
             facts = await self._extract_facts_with_refinement(
                 concept_name=concept.name,
@@ -179,7 +239,7 @@ class EntityFactQAPipeline(BasePipeline):
             )
             if not facts:
                 logger.warning("No facts extracted for entity '%s'", concept.name)
-                return []
+                return None
 
             # Filter entities with insufficient facts or document coverage
             if len(facts) < 3:
@@ -188,7 +248,7 @@ class EntityFactQAPipeline(BasePipeline):
                     concept.name,
                     len(facts),
                 )
-                return []
+                return None
 
             unique_doc_ids = {doc_id for fact in facts for doc_id in fact.doc_ids}
             if len(unique_doc_ids) < 5:
@@ -197,21 +257,43 @@ class EntityFactQAPipeline(BasePipeline):
                     concept.name,
                     len(unique_doc_ids),
                 )
-                return []
+                return None
 
-            return await self._generate_qas_from_facts(
-                concept=concept,
+            return EntityFactMemoryRecord(
+                entity_name=concept.name,
+                data_source=concept.data_source,
+                concept_doc_id=int(concept.doc_id),
+                concept_importance=str(concept.importance or ""),
+                entity_doc_ids=entity_doc_ids,
                 facts=facts,
-                target_pairs=config.qa_pairs_per_entity,
-                model_id=config.qa_model_id,
-                semaphore=semaphore,
-                complex_pair_ratio=config.complex_pair_ratio,
-                max_attempts=config.max_qa_generation_attempts,
-                data_source_description=data_source_description,
             )
         except Exception as exc:
             logger.warning("Entity processing failed for '%s': %s", concept.name, exc)
-            return []
+            return None
+
+    async def _generate_qas_for_entity_memory(
+        self,
+        entity_fact: EntityFactMemoryRecord,
+        config: EntityFactQAConfig,
+        semaphore: asyncio.Semaphore,
+        data_source_description: Optional[str],
+    ) -> list[QA]:
+        concept = Concept(
+            name=entity_fact.entity_name,
+            data_source=entity_fact.data_source,
+            doc_id=int(entity_fact.concept_doc_id),
+            importance=entity_fact.concept_importance,
+        )
+        return await self._generate_qas_from_facts(
+            concept=concept,
+            facts=list(entity_fact.facts),
+            target_pairs=config.qa_pairs_per_entity,
+            model_id=config.qa_model_id,
+            semaphore=semaphore,
+            complex_pair_ratio=config.complex_pair_ratio,
+            max_attempts=config.max_qa_generation_attempts,
+            data_source_description=data_source_description,
+        )
 
     def _validate_config(self, config: EntityFactQAConfig) -> None:
         if config.num_entities <= 0:
@@ -248,6 +330,18 @@ class EntityFactQAPipeline(BasePipeline):
         logger.info("Loaded dataset with %d documents", len(dataset))
         return dataset, name, description
 
+    def _build_generation_context(
+        self, config: EntityFactQAConfig
+    ) -> tuple[Dataset, Any, asyncio.Semaphore, random.Random, Optional[str]]:
+        dataset, dataset_name, data_source_description = self._load_dataset(
+            config.data_source
+        )
+        retriever = self._init_retriever(config, dataset, dataset_name)
+        self._init_llm_client(config, retriever)
+        semaphore = asyncio.Semaphore(config.max_concurrent_requests)
+        rng = random.Random(config.seed)
+        return dataset, retriever, semaphore, rng, data_source_description
+
     def _init_retriever(
         self,
         config: EntityFactQAConfig,
@@ -275,6 +369,7 @@ class EntityFactQAPipeline(BasePipeline):
             dataset=dataset,
             dataset_name=dataset_name,
             **hybrid_kwargs,
+            device='cpu'
         )
 
     async def _generate_concepts(
@@ -462,6 +557,9 @@ class EntityFactQAPipeline(BasePipeline):
                     semaphore=semaphore,
                     use_tools=False,
                 )
+                print("#"*80)
+                print(response)
+                print("#"*80)
             except Exception as exc:
                 logger.warning(
                     "Fact extraction/refinement failed for '%s' on chunk %d: %s",
@@ -477,9 +575,11 @@ class EntityFactQAPipeline(BasePipeline):
             )
             if not filtered_facts:
                 logger.warning(
-                    "No parseable facts for '%s' on chunk %d; keeping previous facts.",
+                    "No parseable facts for '%s' on chunk %d for concept '%s' in doc_ids %s; keeping previous facts.",
                     concept_name,
                     chunk_idx,
+                    concept_name,
+                    chunk_doc_ids,
                 )
                 continue
 
