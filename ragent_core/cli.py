@@ -85,6 +85,7 @@ from ragent_core.pipelines.entity_fact_qa import (
     DEFAULT_EVAL_SIZE as DEFAULT_ENTITY_FACT_EVAL_SIZE,
     DEFAULT_FACT_MODEL_ID as DEFAULT_ENTITY_FACT_MODEL_ID,
     DEFAULT_FACT_REFINEMENT_CHUNK_SIZE as DEFAULT_ENTITY_FACT_REFINEMENT_CHUNK_SIZE,
+    DEFAULT_LLM_CLIENT as DEFAULT_ENTITY_FACT_LLM_CLIENT,
     DEFAULT_MAX_CONCURRENT_REQUESTS as DEFAULT_MAX_CONCURRENT_REQUESTS_ENTITY_FACT,
     DEFAULT_MAX_QA_GENERATION_ATTEMPTS as DEFAULT_ENTITY_FACT_MAX_QA_ATTEMPTS,
     DEFAULT_MAX_DOCS_PER_ENTITY as DEFAULT_ENTITY_FACT_MAX_DOCS_PER_ENTITY,
@@ -877,6 +878,7 @@ def cross_concept_synthesis(
 
 def gen_entity_fact(
     data_source: str,
+    llm: str = DEFAULT_ENTITY_FACT_LLM_CLIENT,
     num_entities: int = DEFAULT_ENTITY_FACT_NUM_ENTITIES,
     qa_pairs_per_entity: int = DEFAULT_ENTITY_FACT_QA_PAIRS_PER_ENTITY,
     concept_model: str = DEFAULT_ENTITY_FACT_CONCEPT_MODEL_ID,
@@ -900,6 +902,7 @@ def gen_entity_fact(
 
     Args:
         data_source: Data source identifier.
+        llm: LLM client to use ('gemini' or 'openai').
         num_entities: Number of sampled entities/concepts.
         qa_pairs_per_entity: Number of QA pairs to generate for each entity.
         concept_model: Model used for entity sampling.
@@ -921,6 +924,7 @@ def gen_entity_fact(
     pipeline = EntityFactQAPipeline()
     config = EntityFactQAConfig(
         data_source=data_source,
+        llm_client=llm,
         num_entities=num_entities,
         qa_pairs_per_entity=qa_pairs_per_entity,
         concept_model_id=concept_model,

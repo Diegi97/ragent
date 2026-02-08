@@ -7,10 +7,13 @@ import random
 from dataclasses import dataclass
 from typing import Any, Iterable, Optional, Sequence
 
+import backoff
 from datasets import Dataset
+from openai import AsyncOpenAI
 from sklearn.model_selection import train_test_split
 from tqdm.asyncio import tqdm
 
+from ragent_core.config import OPENROUTER_API_KEY, OPENROUTER_URL
 from ragent_core.data_sources import load_corpus
 from ragent_core.pipelines.base import BasePipeline, PipelineMetadata
 from ragent_core.pipelines.explorer_agent.gemini_client import GeminiClient
@@ -37,6 +40,7 @@ CONTENT_COLUMN = "text"
 DEFAULT_CONCEPT_MODEL_ID = "gemini-2.5-flash"
 DEFAULT_FACT_MODEL_ID = "gemini-2.5-flash-lite"
 DEFAULT_QA_MODEL_ID = "gemini-3-flash-preview"
+DEFAULT_LLM_CLIENT = "gemini"
 DEFAULT_NUM_ENTITIES = 20
 DEFAULT_QA_PAIRS_PER_ENTITY = 4
 DEFAULT_FACT_REFINEMENT_CHUNK_SIZE = 3
@@ -54,6 +58,7 @@ DEFAULT_EVAL_SIZE = 0.1
 @dataclass
 class EntityFactQAConfig:
     data_source: str
+    llm_client: str = DEFAULT_LLM_CLIENT
     num_entities: int = DEFAULT_NUM_ENTITIES
     qa_pairs_per_entity: int = DEFAULT_QA_PAIRS_PER_ENTITY
     concept_model_id: str = DEFAULT_CONCEPT_MODEL_ID
@@ -84,7 +89,17 @@ class EntityFactQAPipeline(BasePipeline):
 
     def __init__(self) -> None:
         super().__init__()
-        self._llm: Optional[GeminiClient] = None
+        self._llm: Optional[Any] = None
+
+    def _init_llm_client(self, config: EntityFactQAConfig, retriever: Any) -> None:
+        client_name = config.llm_client.strip().lower()
+        if client_name == "gemini":
+            self._llm = GeminiClient(retriever)
+            return
+        if client_name == "openai":
+            self._llm = _OpenRouterOpenAIClient()
+            return
+        raise ValueError(f"Unsupported llm_client: {config.llm_client}")
 
     async def generate(self, config: EntityFactQAConfig) -> list[QA]:
         self._validate_config(config)
@@ -93,7 +108,7 @@ class EntityFactQAPipeline(BasePipeline):
             config.data_source
         )
         retriever = self._init_retriever(config, dataset, dataset_name)
-        self._llm = GeminiClient(retriever)
+        self._init_llm_client(config, retriever)
         semaphore = asyncio.Semaphore(config.max_concurrent_requests)
         rng = random.Random(config.seed)
 
@@ -854,6 +869,40 @@ class EntityFactQAPipeline(BasePipeline):
             stratify=stratify_labels,
         )
         return list(train_qas), list(eval_qas)
+
+
+class _OpenRouterOpenAIClient:
+    """Minimal OpenAI-compatible client for OpenRouter chat completions."""
+
+    def __init__(self, client: Optional[AsyncOpenAI] = None) -> None:
+        self._client = client or AsyncOpenAI(
+            base_url=OPENROUTER_URL,
+            api_key=OPENROUTER_API_KEY,
+        )
+
+    @backoff.on_exception(
+        backoff.expo, Exception, max_tries=5, jitter=backoff.full_jitter
+    )
+    async def chat_completion_with_retry(
+        self,
+        content: str,
+        model: str,
+        semaphore: asyncio.Semaphore,
+        system_prompt: Optional[str] = None,
+        use_tools: bool = False,
+    ) -> str:
+        del use_tools  # Tool calling is not used by this pipeline.
+        messages: list[dict[str, str]] = [{"role": "user", "content": content}]
+        if system_prompt:
+            messages.insert(0, {"role": "system", "content": system_prompt})
+
+        async with semaphore:
+            response = await self._client.chat.completions.create(
+                model=model,
+                messages=messages,
+            )
+
+        return response.choices[0].message.content or ""
 
 
 PIPELINE = EntityFactQAPipeline
