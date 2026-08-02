@@ -1,0 +1,27 @@
+services:
+  prefect:
+    image: prefecthq/prefect:3-python3.12
+    command: prefect server start --host 0.0.0.0
+    environment:
+      PREFECT_HOME: /root/.prefect
+      PREFECT_SERVER_API_HOST: 0.0.0.0
+      PREFECT_UI_API_URL: http://127.0.0.1:4200/api
+    ports:
+      - "127.0.0.1:4200:4200"
+    volumes:
+      - prefect_data:/root/.prefect
+    restart: unless-stopped
+
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    environment:
+      PHOENIX_WORKING_DIR: /mnt/data
+    ports:
+      - "127.0.0.1:6006:6006"
+    volumes:
+      - phoenix_data:/mnt/data
+    restart: unless-stopped
+
+volumes:
+  prefect_data:
+  phoenix_data:

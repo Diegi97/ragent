@@ -1,0 +1,22 @@
+[project]
+name = "ragent_deep_search"
+description = "Train and evaluate agents that perform deep search over defined knowledge bases"
+tags = ["agentic-search", "deep-search", "retrieval", "train", "eval"]
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "ragent-core==0.3.0",
+    "verifiers>=0.2.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ragent_deep_search"]
+
+
+[tool.verifiers.eval]
+num_examples = 5
+rollouts_per_example = 3

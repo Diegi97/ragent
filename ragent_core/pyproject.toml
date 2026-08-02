@@ -1,0 +1,61 @@
+[project]
+name = "ragent-core"
+version = "0.3.0"
+description = "Training language models to perform agentic multi-hop search through reinforcement learning"
+readme = "README.md"
+authors = [
+    { name = "Diego Peláez Paquico", email = "diegi97@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "colorlog>=6.9.0",
+    "openai>=1.101.0",
+    "pydantic>=2.11.7",
+    "python-dotenv>=1.1.1",
+    "rapidfuzz>=3.14.0",
+    "sentence-transformers>=5.1",
+    "verifiers>=0.2.1",
+    "httpx>=0.28.1",
+    "httpx-retries>=0.6.0,<0.7",
+    "tiktoken>=0.12.0",
+    "skypilot[runpod]>=0.11.2",
+    "lingua-language-detector>=2.1.1",
+    "chonkie>=1.6.4",
+    "transformers>=4.56.2",
+    "lancedb>=0.33.0",
+    "pylance>=4.0.1",
+    "renderers>=0.1.8.dev40",
+]
+
+[project.optional-dependencies]
+cuda = [
+    "torch==2.8.0; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "flash-attn==2.8.3.post1; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "vllm==0.10.2; sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
+
+[tool.uv.extra-build-dependencies]
+flash-attn = [
+    { requirement = "torch", match-runtime = true },
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ragent_core"]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=6.30.1",
+    "ipywidgets>=8.1.7",
+]
+
+[tool.pyright]
+typeCheckingMode = "standard"
+reportUnknownMemberType = "none"
+reportUnknownArgumentType = "none"
+reportUnknownParameterType = "none"
+reportUnknownVariableType = "none"
+reportUnknownLambdaType = "none"
