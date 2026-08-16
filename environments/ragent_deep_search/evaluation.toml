@@ -19,7 +19,7 @@ retrieval_mode = "bm25"
 
 [taskset.task.judge]
 model = "openai/gpt-5.6-luna"
-max_criteria = 12
+max_criteria = 6
 
 [harness]
 id = "null"
