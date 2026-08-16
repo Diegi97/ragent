@@ -1,7 +1,10 @@
 # servers/ragent.py
 import asyncio
+import os
+from pathlib import Path
 
 import verifiers.v1 as vf
+from dotenv import dotenv_values
 
 from ragent_core.retrievers import AgentRetriever, RetrievalMode
 
@@ -15,10 +18,35 @@ class RagentToolsetConfig(vf.SharedToolsetConfig):
     namespace: str = "default"
     device: str | None = None
     retrieval_mode: RetrievalMode = RetrievalMode.BM25
+    env_file: Path | None = None
 
 
 class RagentToolset(vf.Toolset[RagentToolsetConfig, RagentState]):
-    TOOL_PREFIX = "ragent"
+    # This taskset owns a single tool server, so bare names cannot collide.
+    TOOL_PREFIX = None
+
+    # Weird workaround for Verifiers changing the tool server's working directory.
+    @classmethod
+    def for_launch(cls, config: RagentToolsetConfig) -> "RagentToolset":
+        """Resolve local paths before Verifiers changes the tool server directory."""
+        env_file = config.env_file
+        if env_file is not None:
+            env_file = env_file.expanduser().resolve()
+        return cls(config.model_copy(update={"env_file": env_file}))
+
+    def _turbopuffer_api_key(self) -> str:
+        api_key = os.getenv("TURBOPUFFER_API_KEY")
+        if api_key is None and self.config.env_file is not None:
+            value = dotenv_values(self.config.env_file).get("TURBOPUFFER_API_KEY")
+            if isinstance(value, str):
+                api_key = value
+        if not api_key:
+            raise ValueError(
+                "TURBOPUFFER_API_KEY is required by the retrieval tools. "
+                "Set env.taskset.tools.env_file to an uncommitted dotenv file "
+                "containing it."
+            )
+        return api_key
 
     async def setup(self) -> None:
         """Load the namespace-level retriever once per environment worker."""
@@ -26,6 +54,7 @@ class RagentToolset(vf.Toolset[RagentToolsetConfig, RagentState]):
             namespace=self.config.namespace,
             device=self.config.device,
             retrieval_mode=self.config.retrieval_mode,
+            turbopuffer_api_key=self._turbopuffer_api_key(),
         )
 
     def _table_name(self) -> str:

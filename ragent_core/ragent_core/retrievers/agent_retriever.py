@@ -12,6 +12,7 @@ from ragent_core.retrievers.retriever import (
     DEFAULT_EMBEDDING_MODEL_NAME,
     DEFAULT_RERANKER_MODEL_NAME,
     TurbopufferRetriever,
+    create_turbopuffer_client,
 )
 
 logger = logging.getLogger(__name__)
@@ -83,6 +84,7 @@ class AgentRetriever:
         embedding_service_url: Optional[str] = None,
         reranker_service_url: Optional[str] = None,
         retrieval_mode: RetrievalMode = RetrievalMode.HYBRID_RERANKED,
+        turbopuffer_api_key: Optional[str] = None,
     ) -> "AgentRetriever":
         """Load an agent retriever from a Turbopuffer logical namespace.
 
@@ -113,6 +115,11 @@ class AgentRetriever:
             embedding_service_url=(embedding_service_url if needs_embeddings else None),
             reranker_service_url=reranker_service_url if needs_reranker else None,
             load_embedding_backend=needs_embeddings,
+            client=(
+                create_turbopuffer_client(api_key=turbopuffer_api_key)
+                if turbopuffer_api_key is not None
+                else None
+            ),
         )
         return cls(base_retriever, retrieval_mode=retrieval_mode)
 

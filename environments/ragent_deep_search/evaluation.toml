@@ -1,28 +1,30 @@
-model = "deepseek/deepseek-v4-flash"
+model = "deepseek/deepseek-v4-flash-0731"
 num_rollouts = 1
 max_concurrent = 5
-push = false
+push = true
 
 [client]
 type = "eval"
 base_url = "https://api.pinference.ai/api/v1"
 api_key_var = "OPENAI_API_KEY"
 
-[taskset]
+[env.taskset]
 id = "ragent_deep_search"
 dataset_path = "diegi97/ragent-rubrics"
 split = "test"
 
-[taskset.tools]
+[env.taskset.tools]
 namespace = "default"
+device = "cuda"
 retrieval_mode = "bm25"
+env_file = ".env"
 
-[taskset.task.judge]
-model = "openai/gpt-5.6-luna"
-max_criteria = 6
+[env.taskset.task.judge]
+model = "deepseek/deepseek-v4-flash-0731"
+max_criteria = 15
 
-[harness]
+[env.agent.harness]
 id = "null"
 
-[harness.runtime]
+[env.agent.runtime]
 type = "subprocess"
