@@ -2,11 +2,11 @@
 name = "ragent_deep_search"
 description = "Train and evaluate agents that perform deep search over defined knowledge bases"
 tags = ["agentic-search", "deep-search", "retrieval", "train", "eval"]
-version = "0.2.3"
+version = "0.2.4"
 requires-python = ">=3.12"
 dependencies = [
     "python-dotenv>=1.1.1",
-    "ragent-core==0.4.0",
+    "ragent-core==0.4.1",
     "verifiers>=0.3.0",
 ]
 
