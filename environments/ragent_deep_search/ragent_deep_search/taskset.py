@@ -1,14 +1,14 @@
 from pathlib import Path
 
 import verifiers.v1 as vf
-from pydantic import Field
+from pydantic import BaseModel, Field
 
 from ragent_core.judges.rubric import RubricJudge, RubricJudgeConfig
 from ragent_deep_search.dataset_loader import DEFAULT_DATASET_ID, iter_dataset_rows
 from ragent_deep_search.toolset import RagentState, RagentToolset, RagentToolsetConfig
 
 
-class RagentRubricItem(vf.StrictBaseModel):
+class RagentRubricItem(BaseModel):
     criterion: str
     doc_ids: list[int | str] = Field(default_factory=list)
 
@@ -45,7 +45,9 @@ class RagentConfig(vf.TasksetConfig):
 
 
 class RagentTaskset(vf.Taskset[RagentTask, RagentConfig]):
-    tools = (RagentToolset,)
+    @classmethod
+    def toolsets(cls, config: RagentConfig) -> list[vf.Toolset]:
+        return [RagentToolset.for_launch(config.tools)]
 
     def load(self) -> list[RagentTask]:
         tasks: list[RagentTask] = []

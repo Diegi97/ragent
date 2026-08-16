@@ -47,7 +47,10 @@ Each dataset row has the following shape:
 The retriever resolves the selected logical namespace through Turbopuffer's
 catalog. The catalog entry and both physical namespaces must exist and be
 marked ready. `TURBOPUFFER_API_KEY` is required; region and physical prefix
-default to `gcp-us-central1` and `ragent`.
+default to `gcp-us-central1` and `ragent`. For a colocated tool server,
+`env.taskset.tools.env_file` identifies the uncommitted dotenv file from which
+the server reads that key. Verifiers does not forward API-key environment
+variables to subprocess tool servers.
 
 For dense or hybrid retrieval, prefer setting `RAGENT_EMBEDDING_SERVICE_URL`
 and, for reranked hybrid retrieval, `RAGENT_RERANKER_SERVICE_URL`. Concurrent
@@ -71,22 +74,7 @@ cd environments/ragent_deep_search
 uv sync
 ```
 
-Store credentials in an uncommitted `.env` file:
-
-```dotenv
-# Prime Inference
-PRIME_API_KEY=your-prime-api-key
-
-# Direct OpenAI, if used instead
-OPENAI_API_KEY=your-openai-api-key
-
-HF_TOKEN=your-hugging-face-token
-TURBOPUFFER_API_KEY=your-turbopuffer-api-key
-# TURBOPUFFER_REGION=gcp-us-central1
-# TURBOPUFFER_NAMESPACE_PREFIX=ragent
-```
-
-Update [`evaluation.toml`](evaluation.toml), especially `model`, `taskset.split`, `taskset.tools.namespace`, and the judge settings. Set `taskset.dataset_path` only when overriding the default Hub dataset or using a local JSONL file. Validate the resolved Verifiers v1 configuration without making model calls:
+Update [`evaluation.toml`](evaluation.toml), especially `model`, `env.taskset.split`, `env.taskset.tools.namespace`, and the judge settings. Set `env.taskset.dataset_path` only when overriding the default Hub dataset or using a local JSONL file. Validate the resolved Verifiers v1 configuration without making model calls:
 
 ```bash
 uv run --env-file .env eval @ evaluation.toml --dry-run
@@ -106,21 +94,22 @@ outputs/ragent_deep_search--<model>--<harness>/<run-id>/
 
 ### Environment Arguments
 
-Taskset, tool, and judge arguments belong under `[taskset]`, `[taskset.tools]`, and `[taskset.task.judge]` respectively.
+Taskset, tool, and judge arguments belong under `[env.taskset]`, `[env.taskset.tools]`, and `[env.taskset.task.judge]` respectively.
 
 | Argument | Type | Default | Description |
 | --- | --- | --- | --- |
-| `taskset.dataset_path` | `str \| Path` | `"diegi97/ragent-rubrics"` | Hugging Face dataset ID or local JSONL file containing questions and rubrics. |
-| `taskset.split` | `str` | `"test"` | Hub split to load. Ignored when `dataset_path` is a local JSONL file. |
-| `taskset.num_tasks` | `int` | `100` | Maximum number of records loaded by the taskset. The top-level eval `num_tasks` can select a smaller run. |
-| `taskset.tools.namespace` | `str` | `"default"` | Turbopuffer logical namespace used by the retrieval tools. |
-| `taskset.tools.device` | `str \| null` | `null` | Optional compute device used while loading the retriever. |
-| `taskset.tools.retrieval_mode` | `str` | `"bm25"` | Retrieval pipeline: `bm25`, `dense`, `hybrid`, or `hybrid_reranked`. |
-| `taskset.task.judge.model` | `str` | Verifiers judge default | Model used to grade rubric criteria. |
-| `taskset.task.judge.base_url` | `str` | Prime Inference URL | Judge API endpoint. Configure it independently from `[client]`. |
-| `taskset.task.judge.api_key_var` | `str` | `"PRIME_API_KEY"` | Name of the environment variable containing the judge API key. |
-| `taskset.task.judge.max_criteria` | `int \| null` | `4` | Maximum criteria per judge call. `null` grades all criteria in one call. Must be at least `1` when set. |
-| `taskset.task.judge.view` | `str` | `"last_reply"` | Portion of the agent trace shown to the judge. |
+| `env.taskset.dataset_path` | `str \| Path` | `"diegi97/ragent-rubrics"` | Hugging Face dataset ID or local JSONL file containing questions and rubrics. |
+| `env.taskset.split` | `str` | `"test"` | Hub split to load. Ignored when `dataset_path` is a local JSONL file. |
+| `env.taskset.num_tasks` | `int` | `100` | Maximum number of records loaded by the taskset. The top-level eval `num_tasks` can select a smaller run. |
+| `env.taskset.tools.namespace` | `str` | `"default"` | Turbopuffer logical namespace used by the retrieval tools. |
+| `env.taskset.tools.device` | `str \| null` | `null` | Optional compute device used while loading the retriever. |
+| `env.taskset.tools.retrieval_mode` | `str` | `"bm25"` | Retrieval pipeline: `bm25`, `dense`, `hybrid`, or `hybrid_reranked`. |
+| `env.taskset.tools.env_file` | `Path \| null` | `null` | Uncommitted dotenv file containing `TURBOPUFFER_API_KEY` for the colocated tool server. Relative paths resolve from the command's working directory. |
+| `env.taskset.task.judge.model` | `str` | Verifiers judge default | Model used to grade rubric criteria. |
+| `env.taskset.task.judge.base_url` | `str` | Prime Inference URL | Judge API endpoint. Configure it independently from `[client]`. |
+| `env.taskset.task.judge.api_key_var` | `str` | `"PRIME_API_KEY"` | Name of the environment variable containing the judge API key. |
+| `env.taskset.task.judge.max_criteria` | `int \| null` | `4` | Maximum criteria per judge call. `null` grades all criteria in one call. Must be at least `1` when set. |
+| `env.taskset.task.judge.view` | `str` | `"last_reply"` | Portion of the agent trace shown to the judge. |
 
 Common top-level evaluation controls are:
 
@@ -134,7 +123,8 @@ Common top-level evaluation controls are:
 | `sampling.max_tokens` | Maximum generated tokens per model response. |
 | `push` | Whether to upload the completed evaluation. |
 
-Do not use a top-level `tools` or `--tools` option. Tool configuration is nested under `[taskset.tools]` in Verifiers v1.
+Do not use a top-level `tools` or `--tools` option. Tool configuration is nested under `[env.taskset.tools]` in Verifiers v1.
+For a one-off override, use `--env.taskset.tools.env-file /path/to/.env`.
 
 ### Metrics
 
