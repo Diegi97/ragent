@@ -4,7 +4,7 @@
 
 - **Environment ID**: `ragent_deep_search`
 - **Short description**: A Verifiers v1 environment for training and evaluating whether an agent can perform deep search over a defined knowledge base or data source, inspect relevant documents, and answer multi-part factual questions.
-- **Tags**: `verifiers-v1`, `agentic-search`, `retrieval`, `LanceDB`, `rubric-judge`
+- **Tags**: `verifiers-v1`, `agentic-search`, `retrieval`, `Turbopuffer`, `rubric-judge`
 
 The agent receives a question and can iteratively call retrieval tools before returning a natural-language answer. A model-based judge grades that answer against the question's per-example rubric.
 
@@ -32,7 +32,7 @@ Each dataset row has the following shape:
 }
 ```
 
-`data_source`, `entity`, `question_type`, `question`, `rubric`, and `doc_ids` are required for Hub records. `data_source` selects the matching LanceDB table. For local pipeline output, the loader adds `data_source` from the sibling `metadata.json`; any row-level value is replaced by this authoritative metadata value. Criterion-level document IDs are metadata for the expected supporting sources.
+`data_source`, `entity`, `question_type`, `question`, `rubric`, and `doc_ids` are required for Hub records. `data_source` selects the matching Turbopuffer catalog corpus. For local pipeline output, the loader adds `data_source` from the sibling `metadata.json`; any row-level value is replaced by this authoritative metadata value. Criterion-level document IDs are metadata for the expected supporting sources.
 
 ### Task
 
@@ -44,13 +44,10 @@ Each dataset row has the following shape:
   - `text_scan(pattern, ...)`: scans the corpus for a fixed string or regular expression.
 - **Rubric**: Each dataset criterion becomes `criterion_01`, `criterion_02`, and so on. Criteria are graded in concurrent batches. Each criterion receives a binary `no`/`yes` score, and the example reward is their weighted mean.
 
-The retriever opens the local LanceDB namespace at:
-
-```text
-${LANCEDB_DB_URI:-lancedb}/<namespace>
-```
-
-The matching index must already exist. The repository's `ragent_core/scripts/sync_lancedb_gcs.py` utility can be used to mirror an existing namespace from GCS when applicable.
+The retriever resolves the selected logical namespace through Turbopuffer's
+catalog. The catalog entry and both physical namespaces must exist and be
+marked ready. `TURBOPUFFER_API_KEY` is required; region and physical prefix
+default to `gcp-us-central1` and `ragent`.
 
 For dense or hybrid retrieval, prefer setting `RAGENT_EMBEDDING_SERVICE_URL`
 and, for reranked hybrid retrieval, `RAGENT_RERANKER_SERVICE_URL`. Concurrent
@@ -64,7 +61,7 @@ Requirements:
 
 - Python 3.12 or newer and `uv`.
 - Access to the Hugging Face dataset, or a local JSONL file in the schema above.
-- A populated local LanceDB namespace.
+- Ready Turbopuffer corpora for every dataset `data_source`.
 - API credentials for both the rollout model and rubric judge.
 
 Install the environment dependencies:
@@ -74,7 +71,7 @@ cd environments/ragent_deep_search
 uv sync
 ```
 
-Store credentials and the local database location in an uncommitted `.env` file:
+Store credentials in an uncommitted `.env` file:
 
 ```dotenv
 # Prime Inference
@@ -84,7 +81,9 @@ PRIME_API_KEY=your-prime-api-key
 OPENAI_API_KEY=your-openai-api-key
 
 HF_TOKEN=your-hugging-face-token
-LANCEDB_DB_URI=/absolute/path/to/lancedb
+TURBOPUFFER_API_KEY=your-turbopuffer-api-key
+# TURBOPUFFER_REGION=gcp-us-central1
+# TURBOPUFFER_NAMESPACE_PREFIX=ragent
 ```
 
 Update [`evaluation.toml`](evaluation.toml), especially `model`, `taskset.split`, `taskset.tools.namespace`, and the judge settings. Set `taskset.dataset_path` only when overriding the default Hub dataset or using a local JSONL file. Validate the resolved Verifiers v1 configuration without making model calls:
@@ -114,7 +113,7 @@ Taskset, tool, and judge arguments belong under `[taskset]`, `[taskset.tools]`, 
 | `taskset.dataset_path` | `str \| Path` | `"diegi97/ragent-rubrics"` | Hugging Face dataset ID or local JSONL file containing questions and rubrics. |
 | `taskset.split` | `str` | `"test"` | Hub split to load. Ignored when `dataset_path` is a local JSONL file. |
 | `taskset.num_tasks` | `int` | `100` | Maximum number of records loaded by the taskset. The top-level eval `num_tasks` can select a smaller run. |
-| `taskset.tools.namespace` | `str` | `"default"` | LanceDB namespace used by the retrieval tools. |
+| `taskset.tools.namespace` | `str` | `"default"` | Turbopuffer logical namespace used by the retrieval tools. |
 | `taskset.tools.device` | `str \| null` | `null` | Optional compute device used while loading the retriever. |
 | `taskset.tools.retrieval_mode` | `str` | `"bm25"` | Retrieval pipeline: `bm25`, `dense`, `hybrid`, or `hybrid_reranked`. |
 | `taskset.task.judge.model` | `str` | Verifiers judge default | Model used to grade rubric criteria. |

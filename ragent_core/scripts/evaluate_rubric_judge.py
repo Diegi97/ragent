@@ -22,8 +22,6 @@ Example:
         openai/gpt-5.4-nano --criteria-per-call 1 2 4 8
 """
 
-from __future__ import annotations
-
 import argparse
 import asyncio
 import json

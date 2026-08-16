@@ -35,7 +35,8 @@ from data_pipelines.pipelines.search_query_generation.prompts import (
 from data_pipelines.pipelines.search_query_generation.services import (
     LLMCompletion,
     chat_completion,
-    chunks_table,
+    chunk_by_source_index,
+    count_chunks,
     load_retriever,
 )
 from data_pipelines.tracing import (
@@ -67,7 +68,7 @@ def search_query_object_name(
 
 
 def reserve_indices(row_count: int, sample_count: int, seed: int) -> list[int]:
-    """Return a deterministic, unique set of valid LanceDB row indices."""
+    """Return a deterministic, unique set of valid remote source indices."""
     if row_count < 0:
         raise ValueError("row_count cannot be negative")
     bounded_count = min(max(sample_count, 0), row_count)
@@ -118,18 +119,12 @@ def _completion_attributes(completion: LLMCompletion) -> dict[str, Any]:
 
 
 def _load_row(config: RetrievalQueriesConfig, row_index: int) -> Mapping[str, Any]:
-    rows = (
-        chunks_table(config)
-        .to_lance()
-        .take(
-            [row_index],
-            columns=["id", "title", "content", "metadata", "document_id"],
+    row = chunk_by_source_index(config, row_index)
+    if row is None:
+        raise RuntimeError(
+            f"Turbopuffer source_index {row_index} did not resolve to one chunk."
         )
-        .to_pylist()
-    )
-    if len(rows) != 1:
-        raise RuntimeError(f"LanceDB row {row_index} did not resolve to one chunk.")
-    return rows[0]
+    return row
 
 
 def _retrieve(config: RetrievalQueriesConfig, query: str) -> Sequence[Any]:
@@ -143,7 +138,7 @@ def _retrieve(config: RetrievalQueriesConfig, query: str) -> Sequence[Any]:
 
 @task(name="read-chunk-row-count", retries=0, persist_result=False)
 async def read_row_count(config: RetrievalQueriesConfig) -> int:
-    return await anyio.to_thread.run_sync(lambda: chunks_table(config).count_rows())
+    return await anyio.to_thread.run_sync(count_chunks, config)
 
 
 @task(name="initialize-jsonl-output", retries=0, persist_result=False)
@@ -185,7 +180,7 @@ async def sample_chunk(
             metadata={
                 **metadata,
                 "table_name": config.table_name,
-                "retriever_namespace": config.retriever_namespace,
+                "logical_namespace": config.logical_namespace,
             },
         )
         if positive is None:

@@ -21,8 +21,7 @@ class DatasetContext:
     queries_path: Path
     metadata_path: Path
     table_name: str
-    retriever_namespace: str
-    lancedb_db_uri: Path
+    logical_namespace: str
     source_metadata: dict[str, Any]
 
 
