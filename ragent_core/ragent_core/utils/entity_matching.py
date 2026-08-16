@@ -1,191 +1,285 @@
 import re
 import unicodedata
-from typing import Dict, List, Tuple
+from collections import defaultdict
+from collections.abc import Iterable
+from dataclasses import dataclass, field
 
 from rapidfuzz import fuzz, process
+
+_NON_WORD_RE = re.compile(r"[^\w\s]")
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
+def _normalize_text(value: str) -> str:
+    value = unicodedata.normalize("NFKC", value).lower()
+    value = _NON_WORD_RE.sub(" ", value)
+    return _WHITESPACE_RE.sub(" ", value).strip()
+
+
+def _maximum_ratio_for_lengths(left: int, right: int) -> float:
+    """Maximum fuzz.ratio score possible for strings of these lengths."""
+    if left <= 0 or right <= 0:
+        return 0.0
+    return 200.0 * min(left, right) / (left + right)
+
+
+@dataclass
+class _TrieNode:
+    children: dict[str, "_TrieNode"] = field(default_factory=dict)
+    terminal: str | None = None
+
+
+class EntityMatcher:
+    """Reusable normalized exact matcher with a restricted fuzzy fallback.
+
+    Entity normalization and lookup indexes are built once. Exact matching uses a
+    token trie, so matching a passage does not scan or compile a regular expression
+    for every known entity.
+
+    Fuzzy matching is deliberately restricted to plausible candidates:
+
+    * single-token entities are compared only with complete passage tokens;
+    * multi-token entities must have an approximately matching token in the passage
+      before their full name is compared with the passage.
+
+    This retains typo tolerance without comparing every passage n-gram with every
+    entity or filling the result with unrelated best-effort fuzzy matches.
+    """
+
+    def __init__(self, entities: Iterable[str]) -> None:
+        norm_to_entity: dict[str, str] = {}
+        for entity in entities:
+            if not entity:
+                continue
+            normalized = _normalize_text(entity)
+            if normalized and normalized not in norm_to_entity:
+                norm_to_entity[normalized] = entity
+
+        self._normalized_entities = tuple(norm_to_entity)
+        self._entities_by_normalized = norm_to_entity
+        self.entities = tuple(norm_to_entity.values())
+        self._normalized_index = {
+            normalized: index
+            for index, normalized in enumerate(self._normalized_entities)
+        }
+        self._token_counts = tuple(
+            len(normalized.split()) for normalized in self._normalized_entities
+        )
+        self._exact_rank = {
+            normalized: rank
+            for rank, normalized in enumerate(
+                sorted(
+                    self._normalized_entities, key=lambda value: (-len(value), value)
+                )
+            )
+        }
+
+        self._trie = _TrieNode()
+        self._max_entity_tokens = 0
+        single_entities_by_length: dict[int, list[str]] = defaultdict(list)
+        multi_entity_indices_by_token: dict[str, list[int]] = defaultdict(list)
+
+        for index, normalized in enumerate(self._normalized_entities):
+            tokens = normalized.split()
+            self._max_entity_tokens = max(self._max_entity_tokens, len(tokens))
+            node = self._trie
+            for token in tokens:
+                node = node.children.setdefault(token, _TrieNode())
+            node.terminal = normalized
+
+            if len(tokens) == 1:
+                single_entities_by_length[len(normalized)].append(normalized)
+            else:
+                for token in set(tokens):
+                    multi_entity_indices_by_token[token].append(index)
+
+        self._single_entities_by_length = {
+            length: tuple(values)
+            for length, values in single_entities_by_length.items()
+        }
+        self._multi_entity_indices_by_token = {
+            token: tuple(indices)
+            for token, indices in multi_entity_indices_by_token.items()
+        }
+        self._multi_entity_tokens_by_length: dict[int, tuple[str, ...]] = {}
+        tokens_by_length: dict[int, list[str]] = defaultdict(list)
+        for token in self._multi_entity_indices_by_token:
+            tokens_by_length[len(token)].append(token)
+        self._multi_entity_tokens_by_length = {
+            length: tuple(values) for length, values in tokens_by_length.items()
+        }
+
+    def __len__(self) -> int:
+        return len(self._normalized_entities)
+
+    def _find_exact(self, tokens: list[str]) -> list[str]:
+        matched: set[str] = set()
+        for start in range(len(tokens)):
+            node = self._trie
+            stop = min(len(tokens), start + self._max_entity_tokens)
+            for index in range(start, stop):
+                node = node.children.get(tokens[index])
+                if node is None:
+                    break
+                if node.terminal is not None:
+                    matched.add(node.terminal)
+        return sorted(matched, key=self._exact_rank.__getitem__)
+
+    @staticmethod
+    def _possible_length_choices(
+        choices_by_length: dict[int, tuple[str, ...]],
+        query_length: int,
+        score_cutoff: int,
+    ) -> list[str]:
+        choices: list[str] = []
+        for choice_length, values in choices_by_length.items():
+            if _maximum_ratio_for_lengths(query_length, choice_length) >= score_cutoff:
+                choices.extend(values)
+        return choices
+
+    def _find_fuzzy(
+        self,
+        normalized_text: str,
+        tokens: list[str],
+        exact: set[str],
+        max_ngram: int,
+        min_fuzzy_score_single: int,
+        min_fuzzy_score_multi: int,
+    ) -> list[tuple[str, float]]:
+        scores: dict[int, float] = {}
+        unique_tokens = {token for token in tokens if len(token) >= 3}
+
+        # A single-token entity must resemble a complete token. This avoids the
+        # partial-substring false positives produced by comparing short names with
+        # arbitrary multi-token spans.
+        for token in unique_tokens:
+            choices = self._possible_length_choices(
+                self._single_entities_by_length,
+                len(token),
+                min_fuzzy_score_single,
+            )
+            for normalized, score, _ in process.extract(
+                token,
+                choices,
+                scorer=fuzz.ratio,
+                score_cutoff=min_fuzzy_score_single,
+                limit=None,
+            ):
+                if normalized in exact:
+                    continue
+                entity_index = self._normalized_index[normalized]
+                scores[entity_index] = max(scores.get(entity_index, 0.0), score)
+
+        # Build the multi-token shortlist through a precomputed token index. Token
+        # matching is fuzzy so a candidate can still be found when a name contains
+        # a typo, but the expensive full-name comparison only sees the shortlist.
+        candidate_indices: set[int] = set()
+        for token in unique_tokens:
+            token_choices = self._possible_length_choices(
+                self._multi_entity_tokens_by_length,
+                len(token),
+                min_fuzzy_score_multi,
+            )
+            for entity_token, _, _ in process.extract(
+                token,
+                token_choices,
+                scorer=fuzz.ratio,
+                score_cutoff=min_fuzzy_score_multi,
+                limit=None,
+            ):
+                candidate_indices.update(
+                    self._multi_entity_indices_by_token[entity_token]
+                )
+
+        max_fuzzy_tokens = max_ngram + 1
+        candidate_indices = {
+            index
+            for index in candidate_indices
+            if self._token_counts[index] <= max_fuzzy_tokens
+            and self._normalized_entities[index] not in exact
+        }
+        candidate_names = [
+            self._normalized_entities[index] for index in sorted(candidate_indices)
+        ]
+        for normalized, score, _ in process.extract(
+            normalized_text,
+            candidate_names,
+            scorer=fuzz.partial_ratio,
+            score_cutoff=min_fuzzy_score_multi,
+            limit=None,
+        ):
+            entity_index = self._normalized_index[normalized]
+            scores[entity_index] = max(scores.get(entity_index, 0.0), score)
+
+        return sorted(
+            (
+                (self._entities_by_normalized[self._normalized_entities[index]], score)
+                for index, score in scores.items()
+            ),
+            key=lambda item: (-item[1], item[0]),
+        )
+
+    def match(
+        self,
+        text: str,
+        max_entities: int = 50,
+        max_ngram: int = 5,
+        min_fuzzy_score_single: int = 97,
+        min_fuzzy_score_multi: int = 90,
+    ) -> list[str]:
+        """Return normalized exact and high-confidence fuzzy entity matches."""
+        if not text or not self._normalized_entities or max_entities <= 0:
+            return []
+
+        normalized_text = _normalize_text(text)
+        if not normalized_text:
+            return []
+        tokens = normalized_text.split()
+        exact_normalized = self._find_exact(tokens)
+        exact_entities = [
+            self._entities_by_normalized[normalized]
+            for normalized in exact_normalized[:max_entities]
+        ]
+        if len(exact_entities) >= max_entities:
+            return exact_entities
+
+        fuzzy = self._find_fuzzy(
+            normalized_text,
+            tokens,
+            set(exact_normalized),
+            max_ngram,
+            min_fuzzy_score_single,
+            min_fuzzy_score_multi,
+        )
+        matched = set(exact_entities)
+        result = list(exact_entities)
+        for entity, _ in fuzzy:
+            if entity in matched:
+                continue
+            result.append(entity)
+            matched.add(entity)
+            if len(result) >= max_entities:
+                break
+        return result
 
 
 def match_entities_in_text(
     text: str,
-    entities: List[str],
+    entities: list[str],
     max_entities: int = 50,
     max_ngram: int = 5,
     min_fuzzy_score_single: int = 97,
     min_fuzzy_score_multi: int = 90,
-) -> List[str]:
+) -> list[str]:
+    """Match entities in one text.
+
+    Repeated callers should construct :class:`EntityMatcher` once and call
+    :meth:`EntityMatcher.match` to reuse the normalized trie and fuzzy indexes.
     """
-    Return entities that appear in `text` using:
-      1. exact normalized matching
-      2. fuzzy matching fallback if exact matches < max_entities
-
-    Parameters
-    ----------
-    text : str
-        Paragraph/text to search in.
-    entities : List[str]
-        List of entity strings.
-    max_entities : int
-        Max number of entities to return.
-    max_ngram : int
-        Max token span length used in fuzzy fallback.
-    min_fuzzy_score_single : int
-        Minimum fuzzy score for 1-token spans/entities.
-    min_fuzzy_score_multi : int
-        Minimum fuzzy score for multi-token spans/entities.
-
-    Returns
-    -------
-    List[str]
-        Matched entities. Exact matches come first, then fuzzy matches.
-    """
-
-    def normalize(s: str) -> str:
-        s = unicodedata.normalize("NFKC", s).lower()
-        s = re.sub(r"[^\w\s]", " ", s)
-        s = re.sub(r"\s+", " ", s).strip()
-        return s
-
-    def token_count(s: str) -> int:
-        if not s:
-            return 0
-        return len(s.split())
-
-    def exact_in_text(text_norm: str, entity_norm: str) -> bool:
-        # Word-boundary-ish exact matching on normalized text
-        # Works well after punctuation normalization.
-        pattern = rf"(?<!\w){re.escape(entity_norm)}(?!\w)"
-        return re.search(pattern, text_norm) is not None
-
-    def build_candidate_spans(text_norm: str, max_n: int) -> List[str]:
-        tokens = text_norm.split()
-        spans = set()
-
-        for i in range(len(tokens)):
-            for j in range(i + 1, min(len(tokens), i + max_n) + 1):
-                span = " ".join(tokens[i:j])
-                # Skip very short/noisy spans unless they are meaningful
-                if len(span) >= 3:
-                    spans.add(span)
-
-        return list(spans)
-
-    # Deduplicate entities while preserving first occurrence order
-    seen_raw = set()
-    entities_unique = []
-    for e in entities:
-        if e and e not in seen_raw:
-            seen_raw.add(e)
-            entities_unique.append(e)
-
-    if not text or not entities_unique:
-        return []
-
-    text_norm = normalize(text)
-    if not text_norm:
-        return []
-
-    # Precompute normalized entities
-    # If multiple original entities normalize to the same string,
-    # keep the first one.
-    norm_to_entity: Dict[str, str] = {}
-    entity_token_counts: Dict[str, int] = {}
-
-    for entity in entities_unique:
-        entity_norm = normalize(entity)
-        if entity_norm and entity_norm not in norm_to_entity:
-            norm_to_entity[entity_norm] = entity
-            entity_token_counts[entity_norm] = token_count(entity_norm)
-
-    normalized_entities = list(norm_to_entity.keys())
-
-    # ------------------------------------------------------------------
-    # 1) Exact normalized matching
-    # ------------------------------------------------------------------
-    exact_matches: List[str] = []
-    matched_entities = set()
-
-    # Longer entities first helps avoid noisy short matches dominating
-    for entity_norm in sorted(normalized_entities, key=lambda x: (-len(x), x)):
-        original_entity = norm_to_entity[entity_norm]
-        if exact_in_text(text_norm, entity_norm):
-            exact_matches.append(original_entity)
-            matched_entities.add(original_entity)
-
-    if len(exact_matches) >= max_entities:
-        return exact_matches[:max_entities]
-
-    # ------------------------------------------------------------------
-    # 2) Fuzzy fallback
-    #    Only if exact matches are fewer than max_entities
-    # ------------------------------------------------------------------
-    candidate_spans = build_candidate_spans(text_norm, max_ngram)
-    if not candidate_spans:
-        return exact_matches
-
-    # Group normalized entities by token count to reduce bad comparisons
-    entities_by_tokens: Dict[int, List[str]] = {}
-    for entity_norm in normalized_entities:
-        n = entity_token_counts[entity_norm]
-        entities_by_tokens.setdefault(n, []).append(entity_norm)
-
-    fuzzy_candidates: List[Tuple[str, float]] = []
-    already_matched_norms = {normalize(e) for e in exact_matches}
-
-    for span in candidate_spans:
-        span_tokens = token_count(span)
-
-        # Compare only against entities with similar token length
-        possible_lengths = {span_tokens - 1, span_tokens, span_tokens + 1}
-        search_space = []
-        for n in possible_lengths:
-            if n in entities_by_tokens:
-                search_space.extend(entities_by_tokens[n])
-
-        if not search_space:
-            continue
-
-        score_cutoff = (
-            min_fuzzy_score_single if span_tokens == 1 else min_fuzzy_score_multi
-        )
-
-        # WRatio is a good general-purpose scorer
-        match = process.extractOne(
-            span,
-            search_space,
-            scorer=fuzz.WRatio,
-            score_cutoff=score_cutoff,
-        )
-
-        if not match:
-            continue
-
-        matched_norm, score, _ = match
-        if matched_norm in already_matched_norms:
-            continue
-
-        original_entity = norm_to_entity[matched_norm]
-        if original_entity in matched_entities:
-            continue
-
-        fuzzy_candidates.append((original_entity, score))
-
-    # Keep best fuzzy score per entity
-    best_fuzzy_score: Dict[str, float] = {}
-    for entity, score in fuzzy_candidates:
-        if entity not in best_fuzzy_score or score > best_fuzzy_score[entity]:
-            best_fuzzy_score[entity] = score
-
-    fuzzy_matches_sorted = [
-        entity
-        for entity, _ in sorted(best_fuzzy_score.items(), key=lambda x: (-x[1], x[0]))
-    ]
-
-    result = exact_matches[:]
-    for entity in fuzzy_matches_sorted:
-        if entity not in matched_entities:
-            result.append(entity)
-            matched_entities.add(entity)
-        if len(result) >= max_entities:
-            break
-
-    return result
+    return EntityMatcher(entities).match(
+        text,
+        max_entities=max_entities,
+        max_ngram=max_ngram,
+        min_fuzzy_score_single=min_fuzzy_score_single,
+        min_fuzzy_score_multi=min_fuzzy_score_multi,
+    )

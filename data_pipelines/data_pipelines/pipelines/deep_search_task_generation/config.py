@@ -16,6 +16,7 @@ class DeepSearchTaskGenerationConfig(BaseModel):
 
     data_source: str = Field(min_length=1)
     output_root: Path = PROJECT_ROOT / "data/deep_search_task_generation"
+    entities_file: Path | None = None
     num_entities: int = Field(default=100, ge=0)
     entity_model_id: str = DEFAULT_ENTITY_MODEL_ID
     seed: int = 42
@@ -34,3 +35,8 @@ class DeepSearchTaskGenerationConfig(BaseModel):
     @classmethod
     def resolve_paths(cls, value: Path) -> Path:
         return value.expanduser().resolve()
+
+    @field_validator("entities_file", mode="after")
+    @classmethod
+    def resolve_optional_paths(cls, value: Path | None) -> Path | None:
+        return value.expanduser().resolve() if value is not None else None

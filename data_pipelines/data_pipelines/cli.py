@@ -165,6 +165,7 @@ def run(
 def _deep_search_task_config(
     data_source: str,
     output_root: Path,
+    entities_file: Path | None,
     num_entities: int,
     entity_model_id: str,
     seed: int,
@@ -177,6 +178,7 @@ def _deep_search_task_config(
     return DeepSearchTaskGenerationConfig(
         data_source=data_source,
         output_root=output_root,
+        entities_file=entities_file,
         num_entities=num_entities,
         entity_model_id=entity_model_id,
         seed=seed,
@@ -221,6 +223,20 @@ def prepare_deep_search_tasks(
     output_root: Annotated[
         Path, typer.Option()
     ] = DeepSearchTaskGenerationConfig.model_fields["output_root"].default,
+    entities_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--entities-file",
+            exists=True,
+            file_okay=True,
+            dir_okay=False,
+            readable=True,
+            help=(
+                "Reuse entities from an existing entities.jsonl and skip entity "
+                "extraction. At most --num-entities records are loaded."
+            ),
+        ),
+    ] = None,
     num_entities: Annotated[int, typer.Option(min=0)] = 100,
     entity_model_id: Annotated[str, typer.Option()] = DEFAULT_ENTITY_MODEL_ID,
     seed: Annotated[int, typer.Option()] = 42,
@@ -247,6 +263,7 @@ def prepare_deep_search_tasks(
     config = _deep_search_task_config(
         data_source,
         output_root,
+        entities_file,
         num_entities,
         entity_model_id,
         seed,

@@ -1,4 +1,5 @@
 import asyncio
+import json
 import random
 import re
 from collections.abc import Iterable, Sequence
@@ -49,7 +50,7 @@ from data_pipelines.tracing import (
 )
 from ragent_core.retrievers.document import RetrievalResult
 from ragent_core.types import Concept
-from ragent_core.utils.entity_matching import match_entities_in_text
+from ragent_core.utils.entity_matching import EntityMatcher
 
 LLM_CONCURRENCY_LIMIT = "deep-search-tasks-openai-llm"
 NO_PROGRESS_LIMIT = 5
@@ -76,6 +77,51 @@ def sample_indices(
     if population <= 0:
         return []
     return rng.sample(range(population), k=min(sample_size, population))
+
+
+def load_entities_file(
+    path: Path,
+    data_source: str,
+    valid_doc_ids: set[int],
+    limit: int,
+) -> list[Concept]:
+    entities: list[Concept] = []
+    seen: set[str] = set()
+    if limit == 0:
+        return entities
+
+    with path.open(encoding="utf-8") as fp:
+        for line_number, line in enumerate(fp, start=1):
+            if not line.strip():
+                continue
+            try:
+                payload = json.loads(line)
+                if not isinstance(payload, dict):
+                    raise TypeError("record must be a JSON object")
+                entity = Concept(**payload)
+            except (json.JSONDecodeError, TypeError) as exc:
+                raise ValueError(
+                    f"Invalid entity record at {path}:{line_number}: {exc}"
+                ) from exc
+
+            key = entity.name.strip().lower()
+            if not key or key in seen:
+                continue
+            if entity.data_source != data_source:
+                raise ValueError(
+                    f"Entity at {path}:{line_number} uses data_source "
+                    f"{entity.data_source!r}, expected {data_source!r}."
+                )
+            if int(entity.doc_id) not in valid_doc_ids:
+                raise ValueError(
+                    f"Entity at {path}:{line_number} references unknown document "
+                    f"ID {entity.doc_id}."
+                )
+            seen.add(key)
+            entities.append(entity)
+            if len(entities) >= limit:
+                break
+    return entities
 
 
 def _format_documents(
@@ -166,7 +212,7 @@ def _prepare_requests_sync(
     config: DeepSearchTaskGenerationConfig,
     entity_index: int,
     entity: Concept,
-    available_entities: Sequence[Concept],
+    entity_matcher: EntityMatcher,
     description: str | None,
     retrieval_debug_directory: Path,
     chunks: Sequence[RetrievalResult],
@@ -188,15 +234,11 @@ def _prepare_requests_sync(
         )
         titles = [chunk.title for chunk in group]
         combined_text = "\n".join(chunk.content for chunk in group)
-        matched = set(
-            match_entities_in_text(
-                combined_text, [candidate.name for candidate in available_entities]
-            )
-        )
+        matched = set(entity_matcher.match(combined_text))
         linked = "\n".join(
-            candidate.name
-            for candidate in available_entities
-            if candidate.name != entity.name and candidate.name in matched
+            candidate_name
+            for candidate_name in entity_matcher.entities
+            if candidate_name != entity.name and candidate_name in matched
         )
         prompt = FACT_EXTRACTION_PROMPT.format(
             ENTITY=entity.name,
@@ -228,7 +270,7 @@ async def prepare_entity_requests(
     config: DeepSearchTaskGenerationConfig,
     entity_index: int,
     entity: Concept,
-    available_entities: Sequence[Concept],
+    entity_matcher: EntityMatcher,
     description: str | None,
     retrieval_debug_directory: Path,
     chunks: Sequence[RetrievalResult],
@@ -251,7 +293,7 @@ async def prepare_entity_requests(
                 config,
                 entity_index,
                 entity,
-                available_entities,
+                entity_matcher,
                 description,
                 retrieval_debug_directory,
                 chunks,
@@ -266,7 +308,7 @@ async def retrieve_and_prepare_entity_requests(
     config: DeepSearchTaskGenerationConfig,
     entity_index: int,
     entity: Concept,
-    available_entities: Sequence[Concept],
+    entity_matcher: EntityMatcher,
     description: str | None,
     table_name: str,
     retrieval_debug_directory: Path,
@@ -280,7 +322,7 @@ async def retrieve_and_prepare_entity_requests(
         config,
         entity_index,
         entity,
-        available_entities,
+        entity_matcher,
         description,
         retrieval_debug_directory,
         chunks,
@@ -305,61 +347,77 @@ async def discover_entities_and_prepare_requests(
 ) -> tuple[str, list[Concept], list[Any]]:
     dataset, table_name, description = await load_corpus(config)
     valid_doc_ids = {int(value) for value in dataset["id"]}
-    rng = random.Random(config.seed)
     entities: list[Concept] = []
-    seen: set[str] = set()
-    no_progress = 0
-    max_rounds = max(30, config.num_entities * 2)
 
-    for round_index in range(max_rounds):
-        if len(entities) >= config.num_entities or no_progress >= NO_PROGRESS_LIMIT:
-            break
-        indices = sample_indices(rng, len(dataset), config.sample_size)
-        outcomes = await asyncio.gather(
-            *(
-                extract_entities_from_document(
-                    config,
-                    int(dataset[index]["id"]),
-                    str(dataset[index].get("title") or ""),
-                    str(dataset[index].get("text") or ""),
-                    table_name,
-                    description,
-                )
-                for index in indices
-            )
-        )
-        added = 0
-        for index, (parsed, error) in zip(indices, outcomes):
-            if error:
-                failures.append(
-                    {
-                        "stage": "entity_extraction",
-                        "doc_id": int(dataset[index]["id"]),
-                        "error": error,
-                    }
-                )
-            for entity in parsed:
-                key = entity.name.strip().lower()
-                if (
-                    not key
-                    or key in seen
-                    or int(entity.doc_id) not in valid_doc_ids
-                    or len(entities) >= config.num_entities
-                ):
-                    continue
-                seen.add(key)
-                entities.append(entity)
-                added += 1
-        no_progress = no_progress + 1 if added == 0 else 0
-        logger.info(
-            "Entity round %d retained %d new entities (%d/%d).",
-            round_index + 1,
-            added,
-            len(entities),
+    if config.entities_file is not None:
+        entities = await anyio.to_thread.run_sync(
+            load_entities_file,
+            config.entities_file,
+            table_name,
+            valid_doc_ids,
             config.num_entities,
         )
+        logger.info(
+            "Loaded %d entities from %s; skipping entity extraction.",
+            len(entities),
+            config.entities_file,
+        )
+    else:
+        rng = random.Random(config.seed)
+        seen: set[str] = set()
+        no_progress = 0
+        max_rounds = max(30, config.num_entities * 2)
+
+        for round_index in range(max_rounds):
+            if len(entities) >= config.num_entities or no_progress >= NO_PROGRESS_LIMIT:
+                break
+            indices = sample_indices(rng, len(dataset), config.sample_size)
+            outcomes = await asyncio.gather(
+                *(
+                    extract_entities_from_document(
+                        config,
+                        int(dataset[index]["id"]),
+                        str(dataset[index].get("title") or ""),
+                        str(dataset[index].get("text") or ""),
+                        table_name,
+                        description,
+                    )
+                    for index in indices
+                )
+            )
+            added = 0
+            for index, (parsed, error) in zip(indices, outcomes):
+                if error:
+                    failures.append(
+                        {
+                            "stage": "entity_extraction",
+                            "doc_id": int(dataset[index]["id"]),
+                            "error": error,
+                        }
+                    )
+                for entity in parsed:
+                    key = entity.name.strip().lower()
+                    if (
+                        not key
+                        or key in seen
+                        or int(entity.doc_id) not in valid_doc_ids
+                        or len(entities) >= config.num_entities
+                    ):
+                        continue
+                    seen.add(key)
+                    entities.append(entity)
+                    added += 1
+            no_progress = no_progress + 1 if added == 0 else 0
+            logger.info(
+                "Entity round %d retained %d new entities (%d/%d).",
+                round_index + 1,
+                added,
+                len(entities),
+                config.num_entities,
+            )
 
     write_jsonl(paths.entities, (entity_to_dict(entity) for entity in entities))
+    entity_matcher = EntityMatcher(entity.name for entity in entities)
     request_outcomes = await asyncio.gather(
         *(
             retrieve_and_prepare_entity_requests(
@@ -367,7 +425,7 @@ async def discover_entities_and_prepare_requests(
                 config,
                 index,
                 entity,
-                entities,
+                entity_matcher,
                 description,
                 table_name,
                 paths.retrieval_debug_directory,

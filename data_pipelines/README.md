@@ -101,6 +101,17 @@ uv run deep-search-tasks prepare \
 
 The command creates a prepare-run directory and a Fireworks input dataset named `deep-search-tasks-<data-source>-<UTC-timestamp>-<retained-entities>e`. Launch the fact-extraction batch in Fireworks and wait for its output dataset; the pipeline deliberately does not create or poll that external job.
 
+To continue from entities produced by an earlier prepare run, pass its entity file:
+
+```bash
+uv run deep-search-tasks prepare \
+  --data-source nampdn_ai_devdocs_io \
+  --entities-file data/deep_search_task_generation/<prepare-run>/entities.jsonl \
+  --num-entities 10
+```
+
+This skips entity extraction and loads up to `--num-entities` unique records in file order. Each reused entity must have the requested data source and reference a document ID that still exists in the corpus.
+
 For a smoke test, prepare one entity with `--num-entities 1` and confirm that `prepare_metadata.json` contains the retriever configuration.
 
 ### 3. Generate question-rubric records
