@@ -10,14 +10,14 @@ from ragent_deep_search.toolset import RagentState, RagentToolset, RagentToolset
 
 class RagentRubricItem(vf.StrictBaseModel):
     criterion: str
-    doc_ids: list[int] = Field(default_factory=list)
+    doc_ids: list[int | str] = Field(default_factory=list)
 
 
 class RagentData(vf.TaskData):
     question: str
     rubric: list[RagentRubricItem]
     table_name: str
-    doc_ids: list[int]
+    doc_ids: list[int | str]
     complexity: str
 
 

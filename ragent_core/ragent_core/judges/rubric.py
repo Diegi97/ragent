@@ -1,10 +1,8 @@
-from __future__ import annotations
-
 import asyncio
 import re
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Self
 
 import verifiers.v1 as vf
 from pydantic import model_validator
@@ -67,7 +65,7 @@ class RubricJudgeConfig(vf.JudgeConfig):
     """Maximum criteria per judge call. ``None`` grades all criteria in one call."""
 
     @model_validator(mode="after")
-    def validate_verdicts(self) -> RubricJudgeConfig:
+    def validate_verdicts(self) -> Self:
         if not self.negative_verdict.strip() or not self.positive_verdict.strip():
             raise ValueError("rubric verdicts must be non-empty")
         if (

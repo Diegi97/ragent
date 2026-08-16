@@ -1,7 +1,7 @@
 # Model Services
 
 BentoML services for the Harrier embedding model and mxbai CrossEncoder used by
-the LanceDB retriever. BentoML provides flexibility over the served models
+the Turbopuffer retriever. BentoML provides flexibility over the served models
 without tying the project to Infinity or TEI.
 
 Use these services for request-parallel workloads, especially search-query

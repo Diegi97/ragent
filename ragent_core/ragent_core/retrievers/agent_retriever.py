@@ -4,8 +4,6 @@ import threading
 from typing import Any, Dict, List, Optional, Tuple
 from xml.sax.saxutils import escape
 
-import pyarrow as pa
-
 from ragent_core.retrievers.base import BaseRetriever
 from ragent_core.retrievers.chunking import DOCUMENT_ID_KEY
 from ragent_core.retrievers.document import Document, RetrievalResult
@@ -13,22 +11,40 @@ from ragent_core.retrievers.mode import RetrievalMode
 from ragent_core.retrievers.retriever import (
     DEFAULT_EMBEDDING_MODEL_NAME,
     DEFAULT_RERANKER_MODEL_NAME,
-    LanceDBRetriever,
+    TurbopufferRetriever,
 )
 
 logger = logging.getLogger(__name__)
 
 
-def _sql_str_literal(value: str) -> str:
-    """Quote ``value`` as a single-quoted SQL string literal (Datafusion)."""
-    return "'" + value.replace("'", "''") + "'"
+_REGEX_META = re.compile(r"([\\.^$|?*+()\[\]{}])")
+_UNSUPPORTED_REGEX = (
+    (re.compile(r"\(\?(?:=|!|<=|<!)"), "lookaround"),
+    (re.compile(r"\\[1-9]"), "backreferences"),
+    (re.compile(r"\\g<|\(\?P="), "backreferences"),
+    (re.compile(r"\(\?\("), "conditional groups"),
+    (re.compile(r"\(\?>"), "atomic groups"),
+)
+
+
+def _escape_server_regex(value: str) -> str:
+    """Escape only regex metacharacters using Rust-regex-compatible escapes."""
+    return _REGEX_META.sub(r"\\\1", value)
+
+
+def _validate_server_regex(pattern: str) -> None:
+    for detector, feature in _UNSUPPORTED_REGEX:
+        if detector.search(pattern):
+            raise ValueError(
+                f"Turbopuffer regex scans do not support {feature}: {pattern!r}"
+            )
 
 
 class AgentRetriever:
     """Document repository + agent-friendly tools.
 
     The :class:`AgentRetriever` is layered over a prebuilt
-    :class:`LanceDBRetriever`. The chunks table carries a top-level
+    :class:`TurbopufferRetriever`. Chunk records carry a source-document
     ``document_id`` column, and a companion ``<table>_documents`` table holds
     the full documents, so documents are recovered with a single indexed lookup
     instead of an in-memory index or a full scan of the chunks table.
@@ -54,7 +70,7 @@ class AgentRetriever:
         self._search_lock: Optional[threading.Lock] = None
 
     @classmethod
-    def from_lancedb_index(
+    def from_turbopuffer_index(
         cls,
         namespace: str = "default",
         model_name: Optional[str] = DEFAULT_EMBEDDING_MODEL_NAME,
@@ -68,10 +84,8 @@ class AgentRetriever:
         reranker_service_url: Optional[str] = None,
         retrieval_mode: RetrievalMode = RetrievalMode.HYBRID_RERANKED,
     ) -> "AgentRetriever":
-        """Load an agent retriever from a LanceDB namespace on local disk.
+        """Load an agent retriever from a Turbopuffer logical namespace.
 
-        The retriever always reads from local disk; mirror a namespace from
-        GCS first with ``scripts/sync_lancedb_gcs.py``.
         BM25 mode skips both embedding and reranker backend loading; dense and
         hybrid modes load only the backends their retrieval pipelines need.
         """
@@ -87,7 +101,7 @@ class AgentRetriever:
                 "HYBRID_RERANKED retrieval requires a reranker model or service."
             )
 
-        base_retriever = LanceDBRetriever.load_index(
+        base_retriever = TurbopufferRetriever.load_index(
             namespace=namespace,
             model_name=model_name or DEFAULT_EMBEDDING_MODEL_NAME,
             device=device,
@@ -110,48 +124,18 @@ class AgentRetriever:
     def retrieval_mode(self) -> Optional[RetrievalMode]:
         return self._retrieval_mode
 
-    def _chunks_table(self, table_name: str) -> Any:
-        return self._retriever.get_chunks_table(table_name)
-
-    def _documents_table(self, table_name: str) -> Any:
-        return self._retriever.get_documents_table(table_name)
-
-    def _doc_id_predicate(self, doc_id: Any, documents_table: Any) -> str:
-        """Build a type-correct ``id = ...`` predicate for the documents table.
-
-        Avoids ``CAST`` so the scalar index on ``id`` is actually used for a
-        point lookup instead of a full scan.
-        """
-        id_type = documents_table.schema.field("id").type
-        if pa.types.is_integer(id_type):
-            return f"id = {int(doc_id)}"
-        return f"id = {_sql_str_literal(str(doc_id))}"
-
     def get_document(self, doc_id: Any, table_name: str) -> Optional[Document]:
         """Return the full :class:`Document` whose id is ``doc_id``.
 
-        This is an indexed point lookup on ``id`` in the companion
-        ``<table>_documents`` table.
+        This is a point lookup in the corpus's companion document namespace.
         """
-        documents_table = self._documents_table(table_name)
-        if documents_table is None:
-            raise RuntimeError("LanceDB documents table is not loaded.")
         try:
-            rows = (
-                documents_table.search()
-                .where(self._doc_id_predicate(doc_id, documents_table))
-                .limit(1)
-                .select(["id", "title", "content", "metadata"])
-                .to_list()
-            )
+            return self._retriever.get_document(doc_id, table_name=table_name)
         except Exception:
             logger.exception(
-                "Failed to query documents table for document id=%s", doc_id
+                "Failed to query document namespace for document id=%s", doc_id
             )
             return None
-        if not rows:
-            return None
-        return Document.from_dict(rows[0])
 
     def retrieve(
         self,
@@ -238,26 +222,16 @@ class AgentRetriever:
         return "\n".join(xml_parts)
 
     @staticmethod
-    def _build_scan_predicate(
+    def _build_scan_regex(
         pattern: str,
         fixed_string: bool,
         case_sensitive: bool,
-    ) -> Optional[str]:
-        """Build a LanceDB ``where`` clause that prefilters chunk rows.
-
-        Returns ``None`` for regex scans, which fall back to a full scan so the
-        authoritative Python :mod:`re` matching (not the SQL regex engine)
-        decides what matches. Fixed-string scans push a literal substring test
-        on the chunk ``content`` column down to LanceDB, whose semantics match
-        Python's ``str`` containment.
-        """
+    ) -> str:
+        """Build a Turbopuffer-compatible regex used for server prefiltering."""
+        server_pattern = _escape_server_regex(pattern) if fixed_string else pattern
         if not fixed_string:
-            return None
-
-        needle = _sql_str_literal(pattern)
-        if case_sensitive:
-            return f"strpos(content, {needle}) > 0"
-        return f"strpos(lower(content), lower({needle})) > 0"
+            _validate_server_regex(pattern)
+        return server_pattern if case_sensitive else f"(?i){server_pattern}"
 
     def _scan_chunk_rows(
         self,
@@ -272,21 +246,8 @@ class AgentRetriever:
         projects the small top-level ``document_id`` column. The trade-off is
         that a match straddling two chunks is not found.
         """
-        table = self._chunks_table(table_name)
-        limit = max(table.count_rows(), 1)
-        predicate = self._build_scan_predicate(pattern, fixed_string, case_sensitive)
-        query = table.search().where(predicate) if predicate else table.search()
-        rows = (
-            query.limit(limit).select(["content", "title", DOCUMENT_ID_KEY]).to_list()
-        )
-        return [
-            (
-                row.get("content") or "",
-                row.get(DOCUMENT_ID_KEY),
-                row.get("title") or "",
-            )
-            for row in rows
-        ]
+        server_regex = self._build_scan_regex(pattern, fixed_string, case_sensitive)
+        return self._retriever.scan_chunks(table_name, server_regex)
 
     def text_scan_tool(
         self,
@@ -332,8 +293,12 @@ class AgentRetriever:
                     return text.lower().find(needle) if text else -1
 
         else:
+            _validate_server_regex(pattern)
             flags = 0 if case_sensitive else re.IGNORECASE
-            regex = re.compile(pattern, flags=flags)
+            try:
+                regex = re.compile(pattern, flags=flags)
+            except re.error as exc:
+                raise ValueError(f"Invalid regular expression: {exc}") from exc
 
             def match_count(text: str) -> int:
                 return sum(1 for _ in regex.finditer(text)) if text else 0

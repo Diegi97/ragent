@@ -37,14 +37,14 @@ The complete generation and contrastive-narrowing contracts are defined in [`pro
 
 ### 3. Retrieval evaluation
 
-Evaluates a completed retrieval-query run against one dense, BM25, hybrid, or reranked LanceDB configuration. It reports chunk- and document-level ranking quality, coverage, and latency.
+Evaluates a completed retrieval-query run against one dense, BM25, hybrid, or reranked Turbopuffer configuration. It reports chunk- and document-level ranking quality, coverage, and latency.
 
 ## Architecture and technologies
 
 - **Prefect** orchestrates flows, tracks execution state, and limits concurrent LLM and retriever calls.
 - **Phoenix** provide object-level traces and instrument OpenAI requests and responses.
 - **JSONL** is the canonical generated dataset output file format.
-- **LanceDB and the RAGent retriever** provide source sampling, retrieval, and hard-negative mining.
+- **Turbopuffer and the RAGent retriever** provide source sampling, retrieval, and hard-negative mining.
 - **Fireworks batch inference** extracts entity facts for deep-search task generation.
 - **Agents** generate and validate question-rubric records from grounded entity facts using the PI harness.
 
@@ -67,7 +67,7 @@ The local interfaces are available at:
 - Prefect: <http://127.0.0.1:4200>
 - Phoenix: <http://127.0.0.1:6006>
 
-All pipelines require a populated LanceDB namespace, which defaults to the repository-level `lancedb/` directory. Configure provider credentials and service URLs in the uncommitted `.env` file.
+All pipelines require ready Turbopuffer catalog entries. Set `TURBOPUFFER_API_KEY`; region, physical prefix, and logical namespace default to `gcp-us-central1`, `ragent`, and `default`. Configure provider credentials and model-service URLs in the uncommitted `.env` file.
 
 ## Run deep-search task generation
 
@@ -80,13 +80,12 @@ Set a local authentication key and start the sequential retriever in one termina
 ```bash
 export RAGENT_RETRIEVER_AUTHKEY='replace-with-a-local-random-secret'
 uv run deep-search-tasks retriever \
-  --lancedb-db-uri ../lancedb \
   --retriever-namespace default \
   --retriever-device cuda \
   --rerank-threshold 3.0
 ```
 
-The worker binds to localhost, loads one `LanceDBRetriever`, buffers incoming requests in a FIFO queue, and processes one complete retrieval request at a time. This keeps work units predictable and lets each request use the GPU efficiently without exposing the model to uncontrolled concurrent load. `--num-chunks-per-entity` is the maximum candidate count presented to the CrossEncoder; only candidates passing `--rerank-threshold` are returned.
+The worker binds to localhost, loads one `TurbopufferRetriever`, buffers incoming requests in a FIFO queue, and processes one complete retrieval request at a time. This keeps work units predictable and lets each request use the GPU efficiently without exposing the model to uncontrolled concurrent load. `--num-chunks-per-entity` is the maximum candidate count presented to the CrossEncoder; only candidates passing `--rerank-threshold` are returned.
 
 ### 2. Prepare entities and fact requests
 
@@ -177,7 +176,7 @@ uv run generate-search-queries run \
   --num-queries 10
 ```
 
-Useful overrides include `--generator-model`, `--retriever-namespace`, `--llm-concurrency`, `--retriever-concurrency`, `--lancedb-db-uri`, and `--output-path`. Run with `--num-queries 1`, `--candidate-mining-top-k 5`, and `--round-trip-top-k 5` for a small smoke test.
+Useful overrides include `--generator-model`, `--logical-namespace`, `--llm-concurrency`, `--retriever-concurrency`, and `--output-path`. Run with `--num-queries 1`, `--candidate-mining-top-k 5`, and `--round-trip-top-k 5` for a small smoke test.
 
 Every run creates a unique directory under `data/search_query_generation/`:
 
@@ -192,7 +191,7 @@ Records contain the complete positive and hard-negative document text. Phoenix t
 
 ## Run retrieval evaluation
 
-Retrieval evaluation is synchronous and does not require Prefect or Phoenix. It reads a completed generation directory and takes the table, namespace, and database URI from its metadata, preventing accidental evaluation against another corpus.
+Retrieval evaluation is synchronous and does not require Prefect or Phoenix. It reads a completed generation directory and requires the table and logical namespace recorded in its metadata, preventing accidental evaluation against another corpus.
 
 ```bash
 uv run evaluate-retrieval run \

@@ -223,7 +223,6 @@ embedding-index/
 
 .DS_Store
 
-lancedb/
 secrets/
 .dagster/
 data_pipelines/data/

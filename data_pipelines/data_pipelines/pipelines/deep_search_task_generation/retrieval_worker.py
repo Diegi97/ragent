@@ -8,16 +8,14 @@ import time
 import uuid
 from dataclasses import dataclass
 from multiprocessing.managers import BaseManager
-from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 from data_pipelines.pipelines.deep_search_task_generation.config import (
     DEFAULT_RETRIEVER_WORKER_PORT,
-    REPOSITORY_ROOT,
 )
-from ragent_core.retrievers import LanceDBRetriever
+from ragent_core.retrievers import TurbopufferRetriever
 from ragent_core.retrievers.document import RetrievalResult
 
 logger = logging.getLogger(__name__)
@@ -29,16 +27,10 @@ _STOP = object()
 
 
 class RetrieverWorkerConfig(BaseModel):
-    lancedb_db_uri: Path = REPOSITORY_ROOT / "lancedb"
     retriever_namespace: str = Field(default="default", min_length=1)
     retriever_device: str | None = None
     rerank_threshold: float = Field(default=3.0, ge=0.0)
     port: int = Field(default=DEFAULT_RETRIEVER_WORKER_PORT, ge=1, le=65535)
-
-    @field_validator("lancedb_db_uri", mode="after")
-    @classmethod
-    def resolve_lancedb_path(cls, value: Path) -> Path:
-        return value.expanduser().resolve()
 
     def public_dict(self) -> dict[str, Any]:
         return self.model_dump(mode="json")
@@ -87,7 +79,7 @@ class RetrieverBroker:
 
     def __init__(
         self,
-        retriever: LanceDBRetriever,
+        retriever: TurbopufferRetriever,
         config: RetrieverWorkerConfig,
     ) -> None:
         self._retriever = retriever
@@ -304,9 +296,8 @@ RetrieverManager.register(
 )
 
 
-def load_worker_retriever(config: RetrieverWorkerConfig) -> LanceDBRetriever:
-    os.environ["LANCEDB_DB_URI"] = str(config.lancedb_db_uri)
-    return LanceDBRetriever.load_index(
+def load_worker_retriever(config: RetrieverWorkerConfig) -> TurbopufferRetriever:
+    return TurbopufferRetriever.load_index(
         namespace=config.retriever_namespace,
         device=config.retriever_device,
         rerank_threshold=config.rerank_threshold,

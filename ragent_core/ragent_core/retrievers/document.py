@@ -6,16 +6,11 @@ KNOWN_FIELDS = {"id", "title", "content", "vector", "metadata", "document_id"}
 
 @dataclass
 class Document:
-    """Single corpus document used by every retriever.
-
-    Replaces the previous ad-hoc ``dataset`` / ``chunk_dataset`` HuggingFace
-    inputs with a single explicit type.
-    """
+    """Single corpus document used by every retriever."""
 
     id: Union[int, str]
     title: str = ""
     content: str = ""
-    vector: list = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
     document_id: Optional[Union[int, str]] = None
 
@@ -39,14 +34,12 @@ class Document:
                 continue
             metadata.setdefault(key, value)
 
-        vector = data.get("vector") or []
         document_id = data.get("document_id")
 
         return cls(
             id=doc_id,
             title=title,
             content=content,
-            vector=list(vector),
             metadata=metadata,
             document_id=document_id,
         )
@@ -59,8 +52,6 @@ class Document:
             "content": self.content,
             "metadata": self.metadata,
         }
-        if self.vector:
-            data["vector"] = self.vector
         if self.document_id is not None:
             data["document_id"] = self.document_id
         return data
@@ -70,7 +61,7 @@ class Document:
         """Convert a HuggingFace ``Dataset`` (or any iterable of dict rows)
         into a list of ``Document``.
 
-        Maps the legacy ``text`` column to ``content``.
+        The ``text`` field is accepted as an alias for ``content``.
         """
         return [cls.from_dict(row) for row in dataset]
 

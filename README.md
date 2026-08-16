@@ -22,9 +22,9 @@ The environment is also available on the [Prime Intellect Environment Hub](https
 
 ## Retrieval architecture
 
-RAGent uses LanceDB as its local retrieval backend. Every indexed data source has a searchable chunk table and a document table: agents retrieve compact chunks with dense search, BM25, or hybrid search, optionally apply CrossEncoder reranking, and fetch complete documents only when needed. Dense retrieval uses [Harrier 0.6B](https://huggingface.co/microsoft/harrier-oss-v1-0.6b) by default, while reranked retrieval uses [mxbai-rerank-base-v2](https://huggingface.co/mixedbread-ai/mxbai-rerank-base-v2). The agent interface exposes `search`, `read`, and `text_scan` tools over this backend.
+RAGent uses Turbopuffer as its remote retrieval backend. Every indexed data source has separate chunk and document namespaces plus a ready-state catalog entry. Agents retrieve compact chunks with dense search, BM25, or server-side hybrid RRF, optionally apply CrossEncoder reranking, and fetch complete documents only when needed. Dense retrieval uses [Harrier 0.6B](https://huggingface.co/microsoft/harrier-oss-v1-0.6b) by default, while reranked retrieval uses [mxbai-rerank-base-v2](https://huggingface.co/mixedbread-ai/mxbai-rerank-base-v2). The agent interface exposes `search`, `read`, and `text_scan` tools over this backend.
 
-Indexes are built from the [`diegi97/ragent_data_sources`](https://huggingface.co/datasets/diegi97/ragent_data_sources) dataset with [`ragent_core/scripts/build_lancedb_indexes.py`](ragent_core/scripts/build_lancedb_indexes.py). The available sources include:
+Indexes are built from the [`diegi97/ragent_data_sources`](https://huggingface.co/datasets/diegi97/ragent_data_sources) dataset with [`ragent_core/scripts/build_turbopuffer_indexes.py`](ragent_core/scripts/build_turbopuffer_indexes.py). The available sources include:
 
 - GitLab Handbook, PostHog documentation, DevDocs.io, and OWASP Cheat Sheets
 - IETF RFCs, Rust RFCs, and Python Enhancement Proposals
@@ -38,7 +38,7 @@ PersonaHub can be indexed separately as a future diversity pool for synthetic-da
 
 ## `ragent_core`
 
-[`ragent_core/`](ragent_core/) is the shared Python package containing data-source loaders, LanceDB retrievers, agent tools, judges, types, utilities, and the repository's index-management scripts; its [README](ragent_core/README.md) documents setup and operational commands.
+[`ragent_core/`](ragent_core/) is the shared Python package containing data-source loaders, the Turbopuffer retriever, agent tools, judges, types, utilities, and the repository's index-management scripts; its [README](ragent_core/README.md) documents setup and operational commands.
 
 ## Artifacts
 

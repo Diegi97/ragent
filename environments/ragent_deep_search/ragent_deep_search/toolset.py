@@ -22,7 +22,7 @@ class RagentToolset(vf.Toolset[RagentToolsetConfig, RagentState]):
 
     async def setup(self) -> None:
         """Load the namespace-level retriever once per environment worker."""
-        self.retriever = AgentRetriever.from_lancedb_index(
+        self.retriever = AgentRetriever.from_turbopuffer_index(
             namespace=self.config.namespace,
             device=self.config.device,
             retrieval_mode=self.config.retrieval_mode,
@@ -45,7 +45,7 @@ class RagentToolset(vf.Toolset[RagentToolsetConfig, RagentState]):
         )
 
     @vf.tool(name="read")
-    async def read_tool(self, doc_ids: list[int]) -> str:
+    async def read_tool(self, doc_ids: list[int | str]) -> str:
         """Read up to three full documents from the active corpus by document ID."""
         table_name = self._table_name()
         return await asyncio.to_thread(

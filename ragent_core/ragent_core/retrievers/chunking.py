@@ -26,8 +26,8 @@ def chunk_documents(
 
     Each chunk has its own ``id`` plus a top-level ``document_id`` (also in
     ``metadata[DOCUMENT_ID_KEY]``) that points back to the source document's
-    id. Full documents live in a separate table (see
-    :meth:`LanceDBRetriever.build_index`).
+    id. Full documents live in a separate namespace populated by
+    ``build_turbopuffer_index``.
     """
     chunks: List[Document] = []
     next_chunk_id = 0

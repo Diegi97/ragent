@@ -1,12 +1,9 @@
-from __future__ import annotations
-
 import json
 import logging
 import math
 import os
 import time
-from collections.abc import Iterator, Sequence
-from contextlib import contextmanager
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -27,7 +24,10 @@ from data_pipelines.pipelines.retrieval_evaluation.models import (
     EvaluationSummary,
     QueryRecord,
 )
-from ragent_core.retrievers.retriever import LanceDBRetriever
+from data_pipelines.pipelines.search_query_generation.config import (
+    RetrievalQueriesConfig,
+)
+from ragent_core.retrievers.retriever import TurbopufferRetriever
 
 logger = logging.getLogger(__name__)
 
@@ -55,26 +55,23 @@ def load_dataset_context(input_directory: Path) -> DatasetContext:
     if not isinstance(metadata, dict) or not isinstance(metadata.get("config"), dict):
         raise ValueError("metadata.json must contain a 'config' object.")
 
-    source_config = metadata["config"]
-    table_name = source_config.get("table_name")
-    namespace = source_config.get("retriever_namespace")
-    db_uri = source_config.get("lancedb_db_uri")
-    if not isinstance(table_name, str) or not table_name.strip():
-        raise ValueError("metadata.json config.table_name must be a non-empty string.")
-    if not isinstance(namespace, str) or not namespace.strip():
+    raw_source_config = metadata["config"]
+    if not isinstance(raw_source_config.get("logical_namespace"), str) or not (
+        raw_source_config["logical_namespace"].strip()
+    ):
         raise ValueError(
-            "metadata.json config.retriever_namespace must be a non-empty string."
+            "metadata.json config.logical_namespace must be a non-empty string."
         )
-    if not isinstance(db_uri, str) or not db_uri.strip():
-        raise ValueError("metadata.json config.lancedb_db_uri must be a path string.")
-
+    try:
+        source_config = RetrievalQueriesConfig.model_validate(raw_source_config)
+    except ValueError as exc:
+        raise ValueError(f"Invalid search-query generation config: {exc}") from exc
     return DatasetContext(
         input_directory=input_directory,
         queries_path=queries_path,
         metadata_path=metadata_path,
-        table_name=table_name.strip(),
-        retriever_namespace=namespace.strip(),
-        lancedb_db_uri=Path(db_uri).expanduser().resolve(),
+        table_name=source_config.table_name,
+        logical_namespace=source_config.logical_namespace,
         source_metadata=metadata,
     )
 
@@ -135,47 +132,31 @@ def load_query_records(path: Path) -> list[QueryRecord]:
     return records
 
 
-@contextmanager
-def _lancedb_uri(uri: Path) -> Iterator[None]:
-    previous = os.environ.get("LANCEDB_DB_URI")
-    os.environ["LANCEDB_DB_URI"] = str(uri)
-    try:
-        yield
-    finally:
-        if previous is None:
-            os.environ.pop("LANCEDB_DB_URI", None)
-        else:
-            os.environ["LANCEDB_DB_URI"] = previous
-
-
 def _load_retriever(
     config: RetrievalEvaluationConfig,
     context: DatasetContext,
-) -> LanceDBRetriever:
+) -> TurbopufferRetriever:
     use_embeddings = config.search_type is not SearchType.BM25
-    with _lancedb_uri(context.lancedb_db_uri):
-        return LanceDBRetriever.load_index(
-            namespace=context.retriever_namespace,
-            model_name=config.embedding_model,
-            device=config.device,
-            trust_remote_code=config.trust_remote_code,
-            reranker_model_name=config.reranker_model if config.reranker else None,
-            rerank_threshold=config.reranker_threshold,
-            top_rerank=config.reranker_candidate_k,
-            rerank_batch_size=config.reranker_batch_size,
-            max_seq_length=config.max_seq_length,
-            embedding_service_url=(
-                config.embedding_service_url if use_embeddings else None
-            ),
-            reranker_service_url=(
-                config.reranker_service_url if config.reranker else None
-            ),
-            load_embedding_backend=use_embeddings,
-        )
+    return TurbopufferRetriever.load_index(
+        namespace=context.logical_namespace,
+        model_name=config.embedding_model,
+        device=config.device,
+        trust_remote_code=config.trust_remote_code,
+        reranker_model_name=config.reranker_model if config.reranker else None,
+        rerank_threshold=config.reranker_threshold,
+        top_rerank=config.reranker_candidate_k,
+        rerank_batch_size=config.reranker_batch_size,
+        max_seq_length=config.max_seq_length,
+        embedding_service_url=(
+            config.embedding_service_url if use_embeddings else None
+        ),
+        reranker_service_url=(config.reranker_service_url if config.reranker else None),
+        load_embedding_backend=use_embeddings,
+    )
 
 
 def _retrieve(
-    retriever: LanceDBRetriever,
+    retriever: TurbopufferRetriever,
     config: RetrievalEvaluationConfig,
     context: DatasetContext,
     query: str,
@@ -315,7 +296,7 @@ def _source_provenance(context: DatasetContext) -> dict[str, Any]:
 
 
 def evaluate_retrieval(config: RetrievalEvaluationConfig) -> EvaluationSummary:
-    """Evaluate one LanceDB retrieval configuration against generated queries."""
+    """Evaluate one Turbopuffer retrieval configuration against generated queries."""
     context = load_dataset_context(config.input_directory)
     queries = load_query_records(context.queries_path)
 
@@ -408,8 +389,7 @@ def evaluate_retrieval(config: RetrievalEvaluationConfig) -> EvaluationSummary:
         "resolved_config": {
             **config.model_dump(mode="json"),
             "table_name": context.table_name,
-            "retriever_namespace": context.retriever_namespace,
-            "lancedb_db_uri": str(context.lancedb_db_uri),
+            "logical_namespace": context.logical_namespace,
             "embedding_backend": (
                 "not_used"
                 if config.search_type is SearchType.BM25

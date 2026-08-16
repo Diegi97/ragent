@@ -58,7 +58,7 @@ app = typer.Typer(
 
 evaluation_app = typer.Typer(
     no_args_is_help=True,
-    help="Evaluate generated retrieval queries against a LanceDB retriever.",
+    help="Evaluate generated retrieval queries against a Turbopuffer retriever.",
 )
 
 deep_search_tasks_app = typer.Typer(
@@ -75,14 +75,13 @@ def evaluation_main() -> None:
 def _retrieval_queries_config(
     table_name: str,
     output_path: Path,
-    lancedb_db_uri: Path,
     num_queries: int,
     hard_negatives_per_query: int,
     round_trip_top_k: int,
     candidate_mining_top_k: int,
     contrastive_candidate_count: int,
     generator_model: str,
-    retriever_namespace: str,
+    logical_namespace: str,
     seed: int,
     llm_concurrency: int,
     retriever_concurrency: int,
@@ -90,14 +89,13 @@ def _retrieval_queries_config(
     return RetrievalQueriesConfig(
         table_name=table_name,
         output_path=output_path,
-        lancedb_db_uri=lancedb_db_uri,
         num_queries=num_queries,
         hard_negatives_per_query=hard_negatives_per_query,
         round_trip_top_k=round_trip_top_k,
         candidate_mining_top_k=candidate_mining_top_k,
         contrastive_candidate_count=contrastive_candidate_count,
         generator_model=generator_model,
-        retriever_namespace=retriever_namespace,
+        logical_namespace=logical_namespace,
         seed=seed,
         llm_concurrency=llm_concurrency,
         retriever_concurrency=retriever_concurrency,
@@ -115,15 +113,11 @@ def _parse_cutoffs(value: str) -> tuple[int, ...]:
 
 @app.command()
 def run(
-    table_name: Annotated[str, typer.Option(help="LanceDB table prefix.")],
+    table_name: Annotated[str, typer.Option(help="Turbopuffer catalog table name.")],
     output_path: Annotated[
         Path,
         typer.Option(help="Base canonical queries.jsonl path."),
     ] = RetrievalQueriesConfig.model_fields["output_path"].default,
-    lancedb_db_uri: Annotated[
-        Path,
-        typer.Option(help="Repository-level LanceDB directory."),
-    ] = RetrievalQueriesConfig.model_fields["lancedb_db_uri"].default,
     num_queries: Annotated[
         int,
         typer.Option(min=0, help="Number of unique query objects."),
@@ -136,7 +130,10 @@ def run(
     candidate_mining_top_k: Annotated[int, typer.Option(min=1)] = 50,
     contrastive_candidate_count: Annotated[int, typer.Option(min=0)] = 25,
     generator_model: Annotated[str, typer.Option()] = GENERATOR_MODEL,
-    retriever_namespace: Annotated[str, typer.Option()] = "default",
+    logical_namespace: Annotated[
+        str,
+        typer.Option(help="Turbopuffer logical namespace."),
+    ] = "default",
     seed: Annotated[int, typer.Option()] = 42,
     llm_concurrency: Annotated[int, typer.Option(min=1)] = 4,
     retriever_concurrency: Annotated[int, typer.Option(min=1)] = 2,
@@ -146,14 +143,13 @@ def run(
     config = _retrieval_queries_config(
         table_name,
         output_path,
-        lancedb_db_uri,
         num_queries,
         hard_negatives_per_query,
         round_trip_top_k,
         candidate_mining_top_k,
         contrastive_candidate_count,
         generator_model,
-        retriever_namespace,
+        logical_namespace,
         seed,
         llm_concurrency,
         retriever_concurrency,
@@ -192,10 +188,6 @@ def _deep_search_task_config(
 
 @deep_search_tasks_app.command("retriever")
 def run_deep_search_task_retriever(
-    lancedb_db_uri: Annotated[
-        Path,
-        typer.Option(help="Repository-level LanceDB directory."),
-    ] = RetrieverWorkerConfig.model_fields["lancedb_db_uri"].default,
     retriever_namespace: Annotated[str, typer.Option()] = "default",
     retriever_device: Annotated[str | None, typer.Option()] = None,
     rerank_threshold: Annotated[float, typer.Option(min=0.0)] = 3.0,
@@ -208,7 +200,6 @@ def run_deep_search_task_retriever(
     load_dotenv()
     configure_logging()
     config = RetrieverWorkerConfig(
-        lancedb_db_uri=lancedb_db_uri,
         retriever_namespace=retriever_namespace,
         retriever_device=retriever_device,
         rerank_threshold=rerank_threshold,
@@ -459,7 +450,7 @@ def run_evaluation(
     ],
     search_type: Annotated[
         SearchType,
-        typer.Option(help="LanceDB retrieval method."),
+        typer.Option(help="Turbopuffer retrieval method."),
     ] = SearchType.HYBRID,
     top_k: Annotated[int, typer.Option(min=1)] = 50,
     cutoffs: Annotated[

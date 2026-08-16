@@ -5,8 +5,7 @@ from .mode import RetrievalMode
 from .retriever import (
     DEFAULT_EMBEDDING_MODEL_NAME,
     DEFAULT_RERANKER_MODEL_NAME,
-    MIN_CHUNKS_FOR_ANN_INDEX,
-    LanceDBRetriever,
+    TurbopufferRetriever,
 )
 from .service_clients import (
     CrossEncoderServiceClient,
@@ -23,10 +22,9 @@ __all__ = [
     "Document",
     "DocumentLike",
     "EmbeddingServiceClient",
-    "LanceDBRetriever",
-    "MIN_CHUNKS_FOR_ANN_INDEX",
     "ModelServiceError",
     "RetrievalMode",
     "RetrievalResult",
+    "TurbopufferRetriever",
     "normalize_documents",
 ]

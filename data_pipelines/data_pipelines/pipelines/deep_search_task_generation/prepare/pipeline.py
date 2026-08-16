@@ -153,7 +153,7 @@ async def load_corpus(
     dataset, _, description = await anyio.to_thread.run_sync(
         load_dataset, config.data_source
     )
-    # LanceDB table names are keyed by the CLI data-source identifier, not the
+    # Catalog table names are keyed by the CLI data-source identifier, not the
     # display/name value returned by the corpus loader.
     return dataset, config.data_source, description
 

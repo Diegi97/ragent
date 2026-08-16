@@ -1,85 +1,85 @@
 # RAGent Core
 
-Shared components for the RAGent pipelines and environments, including data-source loaders, LanceDB retrieval, agent search tools, judges, common types, and operational scripts.
+Shared data-source loaders, Turbopuffer retrieval, agent search tools, judges,
+types, utilities, and operational scripts.
 
 ## Setup
 
-From this directory, install the locked dependencies:
+Install locked runtime dependencies and configure the required API key:
 
 ```bash
-uv sync
+uv sync --locked
+cp .env-template .env
 ```
 
-Copy `.env-template` to an uncommitted `.env` when credentials or remote storage configuration are needed.
+`TURBOPUFFER_API_KEY` is the only required retrieval setting. The defaults are
+region `gcp-us-central1`, physical namespace prefix `ragent`, and logical
+namespace `default`. Region and prefix can be overridden before building with
+`TURBOPUFFER_REGION` and `TURBOPUFFER_NAMESPACE_PREFIX`.
 
-## Operational scripts
+Each corpus has a chunk namespace, a document namespace, and a catalog entry.
+The catalog records physical resolution, schema version, exact counts, vector
+availability and dimensions, embedding model, and readiness. Runtime reads
+reject missing or incomplete entries. Builders never overwrite a corpus; use a
+new logical namespace for a rebuild.
 
-Run the scripts from the **repository root** with `uv run --project ragent_core`. The default LanceDB URI is relative, so this keeps local indexes in the repository-level `lancedb/` directory rather than under `ragent_core/`.
+## Build corpora
 
-### Build LanceDB indexes
-
-Build chunk and document tables for every split in `diegi97/ragent_data_sources`:
+Run scripts from the repository root. Build all Hugging Face sources:
 
 ```bash
-uv run --project ragent_core python ragent_core/scripts/build_lancedb_indexes.py \
+uv run --project ragent_core python ragent_core/scripts/build_turbopuffer_indexes.py \
   --device cuda --batch-size 512
 ```
 
-Build one source only:
+Build one source or a lexical-only corpus:
 
 ```bash
-uv run --project ragent_core python ragent_core/scripts/build_lancedb_indexes.py \
+uv run --project ragent_core python ragent_core/scripts/build_turbopuffer_indexes.py \
   --data-source nampdn_ai_devdocs_io --device cuda --batch-size 512
+uv run --project ragent_core python ragent_core/scripts/build_turbopuffer_indexes.py \
+  --data-source nampdn_ai_devdocs_io --no-embedding --namespace lexical-v1
 ```
 
-Create lexical BM25/FTS and scalar indexes without embeddings:
+Build PersonaHub, optionally with `--limit 100` for a smoke test:
 
 ```bash
-uv run --project ragent_core python ragent_core/scripts/build_lancedb_indexes.py \
-  --data-source nampdn_ai_devdocs_io --no-embedding
-```
-
-Each source produces `<data_source>_chunks` and `<data_source>_documents` tables under `lancedb/<namespace>/`. Use `--namespace` to select another namespace.
-
-### Build the PersonaHub diversity index
-
-PersonaHub is intended as a future diversity pool for synthetic-data generation, not as a searchable source corpus. Its pipeline integration is still a work in progress and it is not currently used.
-
-```bash
-uv run --project ragent_core python ragent_core/scripts/build_personahub_lancedb_index.py \
+uv run --project ragent_core \
+  python ragent_core/scripts/build_personahub_turbopuffer_index.py \
   --device cuda --batch-size 512
 ```
 
-Use `--limit 100` for a small smoke test.
+Embeddings and writes are streamed in batches. Corpus document and chunk IDs
+are stored directly as Turbopuffer unsigned integers.
 
-### Sync indexes with GCS
+## Delete namespaces
 
-GCS can act as the durable store while local LanceDB remains the hot read path. Configure `LANCEDB_GCS_URI` and, if needed, `GCS_SERVICE_ACCOUNT`, then upload or download a namespace:
+Pass explicit physical namespace names. The command only previews its targets
+unless `--yes` is supplied:
 
 ```bash
-uv run --project ragent_core python ragent_core/scripts/sync_lancedb_gcs.py upload \
-  --namespace default
-uv run --project ragent_core python ragent_core/scripts/sync_lancedb_gcs.py download \
-  --namespace default
+uv run --project ragent_core \
+  python ragent_core/scripts/delete_turbopuffer_namespaces.py \
+  ragent.test.example.chunks \
+  ragent.test.example.documents \
+  ragent.test.catalog
+
+uv run --project ragent_core \
+  python ragent_core/scripts/delete_turbopuffer_namespaces.py --yes \
+  ragent.test.example.chunks \
+  ragent.test.example.documents \
+  ragent.test.catalog
 ```
 
-Synchronization mirrors the source namespace to the destination. The script requires `gsutil`, plus `gcloud` when activating a service account.
+## Data-source publication
 
-### Upload a data source
-
-Data-source modules normalize corpora to the shared `id`, `title`, and `text` schema. Validate one locally:
+Validate or upload normalized Hugging Face source data with:
 
 ```bash
 uv run --project ragent_core python ragent_core/scripts/upload_data_source.py \
   posthog_com --dry-run
-```
-
-Upload it as an independent Hugging Face dataset split:
-
-```bash
 uv run --project ragent_core python ragent_core/scripts/upload_data_source.py posthog_com
 ```
 
-Pass `--overwrite` to replace that source's split while preserving the others, or `--repo-id owner/dataset` to target another dataset.
-
-Question-rubric publication and generated-data synchronization belong to the [`data_pipelines`](../data_pipelines/README.md) project.
+Generated-data publication belongs to the
+[`data_pipelines`](../data_pipelines/README.md) project.
