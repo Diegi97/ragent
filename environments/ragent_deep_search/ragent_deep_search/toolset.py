@@ -5,6 +5,7 @@ from pathlib import Path
 
 import verifiers.v1 as vf
 from dotenv import dotenv_values
+from pydantic import SkipValidation
 
 from ragent_core.retrievers import AgentRetriever, RetrievalMode
 
@@ -65,7 +66,7 @@ class RagentToolset(vf.Toolset[RagentToolsetConfig, RagentState]):
 
     @vf.tool(name="search")
     async def search_tool(self, queries: list[str]) -> str:
-        """Search the active corpus for documents relevant to one or more queries."""
+        """Search the active corpus for documents relevant to up to three queries."""
         table_name = self._table_name()
         return await asyncio.to_thread(
             self.retriever.search_tool,
@@ -74,8 +75,18 @@ class RagentToolset(vf.Toolset[RagentToolsetConfig, RagentState]):
         )
 
     @vf.tool(name="read")
-    async def read_tool(self, doc_ids: list[int | str]) -> str:
-        """Read up to three full documents from the active corpus by document ID."""
+    # Skip validation so numeric strings reach the tool and get a friendly error.
+    async def read_tool(self, doc_ids: list[SkipValidation[int]]) -> str:
+        """Read up to three documents by integer ID; numeric strings are rejected."""
+        if any(
+            not isinstance(doc_id, int) or isinstance(doc_id, bool)
+            for doc_id in doc_ids
+        ):
+            return (
+                "Error: The read tool accepts only integers as document IDs. "
+                'Retry with integer IDs, for example: {"doc_ids": [2696, 2808]}.'
+            )
+
         table_name = self._table_name()
         return await asyncio.to_thread(
             self.retriever.read_tool,
