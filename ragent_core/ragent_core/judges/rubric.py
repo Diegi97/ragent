@@ -7,6 +7,7 @@ from typing import Any, Self
 import verifiers.v1 as vf
 from pydantic import model_validator
 from verifiers.v1.judges.rubric import Criterion, CriterionVerdict
+from verifiers.v1.utils.retries import retrying
 
 RUBRIC_PROMPT = """Given a task, a response, and grading criteria, determine whether the response satisfies each criterion.
 
@@ -50,6 +51,17 @@ _CRITERIA_XML_RE = re.compile(
     r"<criteria(?:\s[^>]*)?>.*?</criteria\s*>",
     re.DOTALL,
 )
+_CRITERION_XML_RE = re.compile(
+    r"<criterion(?:\s[^>]*)?>(.*?)</criterion\s*>",
+    re.DOTALL,
+)
+_FIELD_XML_RE = {
+    field: re.compile(
+        rf"<{field}(?:\s[^>]*)?>(.*?)</{field}\s*>",
+        re.DOTALL,
+    )
+    for field in ("name", "reason", "verdict")
+}
 
 
 class RubricJudgeConfig(vf.JudgeConfig):
@@ -63,6 +75,8 @@ class RubricJudgeConfig(vf.JudgeConfig):
     positive_verdict: str = "yes"
     max_criteria: int | None = 4
     """Maximum criteria per judge call. ``None`` grades all criteria in one call."""
+    max_retries: int = 5
+    """Retries after a malformed or otherwise invalid judge verdict."""
 
     @model_validator(mode="after")
     def validate_verdicts(self) -> Self:
@@ -75,7 +89,23 @@ class RubricJudgeConfig(vf.JudgeConfig):
             raise ValueError("negative_verdict and positive_verdict must differ")
         if self.max_criteria is not None and self.max_criteria < 1:
             raise ValueError("max_criteria must be at least 1 or None")
+        if not 0 <= self.max_retries <= 5:
+            raise ValueError("max_retries must be between 0 and 5")
         return self
+
+
+def _parse_unescaped_xml_verdicts(block: str) -> list[CriterionVerdict]:
+    """Parse judge fields as text when XML entities were not escaped."""
+
+    verdicts: list[CriterionVerdict] = []
+    for criterion_match in _CRITERION_XML_RE.finditer(block):
+        body = criterion_match.group(1)
+        values: dict[str, str] = {}
+        for field, pattern in _FIELD_XML_RE.items():
+            if match := pattern.search(body):
+                values[field] = match.group(1).strip()
+        verdicts.append(CriterionVerdict.model_validate(values))
+    return verdicts
 
 
 def parse_xml_verdicts(text: str) -> list[CriterionVerdict]:
@@ -87,13 +117,10 @@ def parse_xml_verdicts(text: str) -> list[CriterionVerdict]:
 
     parsed: list[CriterionVerdict] | None = None
     for match in _CRITERIA_XML_RE.finditer(text):
-        try:
-            root = ET.fromstring(match.group())
-        except ET.ParseError:
-            continue
-
+        block = match.group()
         verdicts: list[CriterionVerdict] = []
         try:
+            root = ET.fromstring(block)
             for element in root.findall("./criterion"):
                 values: dict[str, str] = {}
                 for field in ("name", "reason", "verdict"):
@@ -101,8 +128,11 @@ def parse_xml_verdicts(text: str) -> list[CriterionVerdict]:
                     if child is not None:
                         values[field] = "".join(child.itertext()).strip()
                 verdicts.append(CriterionVerdict.model_validate(values))
-        except ValueError:
-            continue
+        except (ET.ParseError, ValueError):
+            try:
+                verdicts = _parse_unescaped_xml_verdicts(block)
+            except ValueError:
+                continue
 
         if verdicts:
             parsed = verdicts
@@ -180,41 +210,50 @@ class RubricJudge(vf.Judge[list[CriterionVerdict], RubricJudgeConfig]):
         rendered_criteria = "\n".join(
             f"- {criterion.name}: {criterion.text}" for criterion in batch
         )
-        result = await self.evaluate(
-            trace=trace,
-            question=question,
-            response=response,
-            criteria=rendered_criteria,
-            negative_verdict=self.config.negative_verdict,
-            positive_verdict=self.config.positive_verdict,
-        )
-        verdicts = result.parsed or []
-
-        by_name = {criterion.name: criterion for criterion in batch}
-        actual_names = sorted(verdict.name for verdict in verdicts)
-        expected_names = sorted(by_name)
-        if actual_names != expected_names:
-            raise ValueError(
-                f"judge returned verdicts for {actual_names}; expected {expected_names}"
-            )
-
-        negative = self.config.negative_verdict.strip().casefold()
-        positive = self.config.positive_verdict.strip().casefold()
-        scores: dict[str, float] = {}
-        for verdict in verdicts:
-            normalized = verdict.verdict.strip().casefold()
-            if normalized == positive:
-                scores[verdict.name] = 1.0
-            elif normalized == negative:
-                scores[verdict.name] = 0.0
-            else:
-                raise ValueError(
-                    f"judge returned verdict {verdict.verdict!r} for "
-                    f"{verdict.name!r}; expected "
-                    f"{self.config.negative_verdict!r} or "
-                    f"{self.config.positive_verdict!r}"
+        async for attempt in retrying(
+            on=ValueError,
+            retries=self.config.max_retries,
+            label="rubric judge batch",
+        ):
+            with attempt:
+                result = await self.evaluate(
+                    trace=trace,
+                    question=question,
+                    response=response,
+                    criteria=rendered_criteria,
+                    negative_verdict=self.config.negative_verdict,
+                    positive_verdict=self.config.positive_verdict,
                 )
-        return scores
+                verdicts = result.parsed or []
+
+                by_name = {criterion.name: criterion for criterion in batch}
+                actual_names = sorted(verdict.name for verdict in verdicts)
+                expected_names = sorted(by_name)
+                if actual_names != expected_names:
+                    raise ValueError(
+                        f"judge returned verdicts for {actual_names}; "
+                        f"expected {expected_names}"
+                    )
+
+                negative = self.config.negative_verdict.strip().casefold()
+                positive = self.config.positive_verdict.strip().casefold()
+                scores: dict[str, float] = {}
+                for verdict in verdicts:
+                    normalized = verdict.verdict.strip().casefold()
+                    if normalized == positive:
+                        scores[verdict.name] = 1.0
+                    elif normalized == negative:
+                        scores[verdict.name] = 0.0
+                    else:
+                        raise ValueError(
+                            f"judge returned verdict {verdict.verdict!r} for "
+                            f"{verdict.name!r}; expected "
+                            f"{self.config.negative_verdict!r} or "
+                            f"{self.config.positive_verdict!r}"
+                        )
+                return scores
+
+        raise RuntimeError("rubric judge retry loop ended without a result")
 
     async def score(self, task: vf.TaskData, trace: vf.Trace) -> float:
         criteria = self._criteria(task)

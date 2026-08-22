@@ -7,6 +7,16 @@ from ragent_core.judges.rubric import RubricJudge, RubricJudgeConfig
 from ragent_deep_search.dataset_loader import DEFAULT_DATASET_ID, iter_dataset_rows
 from ragent_deep_search.toolset import RagentState, RagentToolset, RagentToolsetConfig
 
+SYSTEM_PROMPT = """\
+You are a search agent. You help users by searching the corpus and reading and scanning relevant documents to answer their questions.
+
+# Available tools
+
+- `search`: Search the corpus for documents relevant to one or more queries.
+- `read`: Read up to three documents by integer ID.
+- `text_scan`: Scan the corpus for a fixed string or regular expression.
+"""
+
 
 class RagentRubricItem(BaseModel):
     criterion: str
@@ -61,6 +71,7 @@ class RagentTaskset(vf.Taskset[RagentTask, RagentConfig]):
             data = RagentData(
                 idx=idx,
                 prompt=row["question"],
+                system_prompt=SYSTEM_PROMPT,
                 question=row["question"],
                 rubric=row["rubric"],
                 table_name=row["data_source"],

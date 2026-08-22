@@ -177,14 +177,15 @@ class AgentRetriever:
         """Search the indexed corpus for the most relevant documents.
 
         Returns an XML-formatted string with search results grouped by query.
-        Snippets are taken from the matched chunks; ids and titles refer to
-        the source document.
+        Search is limited to the first three queries to keep tool responses
+        bounded. Snippets are taken from the matched chunks; ids and titles
+        refer to the source document.
         """
         logger.debug("Search tool called with queries: %s", queries)
 
         with self._get_search_lock():
             xml_parts = ["<search_results>"]
-            for query in queries:
+            for query in queries[:3]:
                 retrieval_results = self.retrieve(
                     query, top_k=10, table_name=table_name
                 )
