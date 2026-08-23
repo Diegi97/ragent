@@ -42,7 +42,8 @@ Each dataset row has the following shape:
   - `search(queries)`: searches for several queries in one call.
   - `read(doc_ids)`: returns the full text of selected documents.
   - `text_scan(pattern, ...)`: scans the corpus for a fixed string or regular expression.
-- **Rubric**: Each dataset criterion becomes `criterion_01`, `criterion_02`, and so on. Criteria are graded in concurrent batches. Each criterion receives a binary `no`/`yes` score, and the example reward is their weighted mean.
+- **Rubric**: Each dataset criterion becomes `criterion_01`, `criterion_02`, and so on. Criteria are graded in concurrent batches. Each criterion receives a binary `no`/`yes` score, and their weighted mean contributes 90% of the example reward.
+- **Citation grounding**: The remaining 10% is a deterministic binary reward. It requires inline document-ID citations, a matching deduplicated `## Sources` section, and a `search` result or successful `read` result for every cited ID.
 
 The retriever resolves the selected logical namespace through Turbopuffer's
 catalog. The catalog entry and both physical namespaces must exist and be
@@ -130,7 +131,8 @@ For a one-off override, use `--env.taskset.tools.env-file /path/to/.env`.
 
 | Metric | Range | Description |
 | --- | --- | --- |
-| `rubric` | `[0, 1]` | Weighted mean of all criterion scores for the example. |
+| `rubric` | `[0, 1]` | Weighted mean of all criterion scores; weighted at `0.9` in the aggregate reward. |
+| `citation_grounding` | `{0, 1}` | Whether inline citations and the source list agree and every cited document was returned by `search` or successfully by `read`; weighted at `0.1`. |
 | `rubric/criterion_NN` | `{0, 1}` | Binary score emitted for an individual criterion. |
 
-Because this task currently has one reward function, the trace's aggregate reward is the same as the `rubric` metric.
+The trace's aggregate reward is the sum of the weighted `rubric` and `citation_grounding` rewards and remains in `[0, 1]`.
