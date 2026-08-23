@@ -64,20 +64,18 @@ class RagentToolset(vf.Toolset[RagentToolsetConfig, RagentState]):
             raise RuntimeError("No corpus was assigned to this rollout.")
         return table_name
 
-    @vf.tool(name="search")
-    async def search_tool(self, queries: list[str]) -> str:
-        """Search the active corpus for documents relevant to up to three queries."""
-        table_name = self._table_name()
+    async def search(self, queries: list[str], *, table_name: str) -> str:
+        """Call the search implementation directly for a known corpus."""
         return await asyncio.to_thread(
             self.retriever.search_tool,
             queries,
             table_name,
         )
 
-    @vf.tool(name="read")
-    # Skip validation so numeric strings reach the tool and get a friendly error.
-    async def read_tool(self, doc_ids: list[SkipValidation[int]]) -> str:
-        """Read up to three documents by integer ID; numeric strings are rejected."""
+    @staticmethod
+    def _read_validation_error(
+        doc_ids: list[SkipValidation[int]],
+    ) -> str | None:
         if any(
             not isinstance(doc_id, int) or isinstance(doc_id, bool)
             for doc_id in doc_ids
@@ -86,13 +84,37 @@ class RagentToolset(vf.Toolset[RagentToolsetConfig, RagentState]):
                 "Error: The read tool accepts only integers as document IDs. "
                 'Retry with integer IDs, for example: {"doc_ids": [2696, 2808]}.'
             )
+        return None
 
-        table_name = self._table_name()
+    async def read(
+        self,
+        doc_ids: list[SkipValidation[int]],
+        *,
+        table_name: str,
+    ) -> str:
+        """Call the document reader directly for a known corpus."""
+        validation_error = self._read_validation_error(doc_ids)
+        if validation_error is not None:
+            return validation_error
         return await asyncio.to_thread(
             self.retriever.read_tool,
             doc_ids,
             table_name,
         )
+
+    @vf.tool(name="search")
+    async def search_tool(self, queries: list[str]) -> str:
+        """Search the active corpus for documents relevant to up to three queries."""
+        return await self.search(queries, table_name=self._table_name())
+
+    @vf.tool(name="read")
+    # Skip validation so numeric strings reach the tool and get a friendly error.
+    async def read_tool(self, doc_ids: list[SkipValidation[int]]) -> str:
+        """Read up to three documents by integer ID; numeric strings are rejected."""
+        validation_error = self._read_validation_error(doc_ids)
+        if validation_error is not None:
+            return validation_error
+        return await self.read(doc_ids, table_name=self._table_name())
 
     @vf.tool(name="text_scan")
     async def text_scan_tool(

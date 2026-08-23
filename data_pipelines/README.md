@@ -15,9 +15,14 @@ General generation logic:
 1. Sample entities from a selected data source.
 2. Retrieve **all relevant documents** for each entity from the data source.
 3. Extract **all facts** about each entity from those documents, retaining the supporting document IDs.
-4. Give an entity's complete fact set and source material to a [Pi](https://github.com/earendil-works/pi) agent.
-5. Have the agent create and validate a question-rubric pair that requires grounded, multi-document research and has a uniquely supported answer.
-6. Aggregate valid records into the final dataset.
+4. Link entity mentions into a soft knowledge graph and give the assigned entity plus the wider extracted graph to a [Pi](https://github.com/earendil-works/pi) synthesizer agent.
+5. Have the synthesizer draft a natural base question and an explicit, document-grounded rubric, then validate its format, evidence IDs, and answer uniqueness.
+6. Run a retrieval probe with the question itself. If every supporting document appears in the top 10, the question is too lexically transparent, so the synthesizer evolves it before spending a solver rollout.
+7. Once the retrieval gate passes, run one solver rollout for that candidate version. A rubric judge returns the solver's answer, per-criterion judgments, and the percentage of criteria satisfied.
+8. Use the retrieval and solver evidence to calibrate difficulty. When an item is too easy, apply one evolution strategy, then revalidate, reprobe, and audit uniqueness before solving the revised version.
+9. Stop at the entity's attainable difficulty frontier, or when an integrity, fact, or step budget fires. Reject or repair ambiguous and near-zero-score items rather than treating broken tasks as hard, then aggregate valid records into the final dataset.
+
+The synthesizer-solver loop and its difficulty-evolution strategies were inspired by Prime Intellect's [General Agent](https://www.primeintellect.ai/blog/general-agent).
 
 The same prepared entity facts can alternatively be used to generate conventional question-answer records.
 
@@ -122,12 +127,13 @@ uv run deep-search-tasks generate-rubrics \
   --prepare-dir data/deep_search_task_generation/<prepare-run> \
   --batch-dataset <fireworks-output-dataset> \
   --model accounts/fireworks/models/kimi-k3 \
+  --solver-model deepseek/deepseek-v4-flash-0731 \
   --num-rubrics 100 \
   --pi-concurrency 10 \
   --max-attempts 4
 ```
 
-Pi must be installed and configured in the environment running the flow. Each agent writes an XML question-rubric record, validates it in its workspace, and then passes a second pipeline validation before aggregation.
+Pi and the `pi-phoenix` package must be installed and configured in the environment running the flow (`pi install npm:pi-phoenix`). Each agent writes a Markdown question-rubric record.
 
 The requested rubric count is distributed round-robin over the prepared entities. Fireworks operations require `OPENAI_API_KEY` and `FIREWORKS_ACCOUNT_ID`. The retriever defaults to port `8765`; when overriding it, pass matching ports to `retriever` and `prepare`.
 
@@ -156,7 +162,7 @@ Prepare runs are written under `data/deep_search_task_generation/` and contain:
 
 Each rubric finalization creates an immutable `rubric_finalize_*` child directory with the raw Fireworks files, extracted `entity_facts.jsonl`, final `question_rubrics.jsonl`, failures, and metadata. QA generations create a separate child directory with equivalent provenance and `qas.jsonl`.
 
-Upload question-rubric records to Hugging Face with stratified train and test splits:
+Upload question-rubric records to Hugging Face with train and test splits:
 
 ```bash
 uv run python scripts/upload_question_rubrics.py \

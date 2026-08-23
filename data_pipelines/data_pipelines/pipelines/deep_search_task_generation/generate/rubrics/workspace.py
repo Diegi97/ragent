@@ -89,8 +89,10 @@ def create_fact_workspace(
     directory = directory.resolve()
     facts_directory = directory / "facts"
     outputs_directory = directory / "outputs"
+    audits_directory = directory / ".difficulty_checks"
     facts_directory.mkdir(parents=True, exist_ok=False)
     outputs_directory.mkdir(exist_ok=False)
+    audits_directory.mkdir(exist_ok=False)
 
     entity_paths: dict[str, str] = {}
     used_paths: set[str] = set()
@@ -129,11 +131,21 @@ def create_fact_workspace(
     validator = directory / "validate_question_rubric.py"
     shutil.copy2(validator_source, validator)
     validator.chmod(0o444)
+    scripts_directory = Path(__file__).resolve().parent
+    retrieval_probe = directory / "retrieval_probe.py"
+    solver = directory / "solve_question_rubric.py"
+    shutil.copy2(scripts_directory / "retrieval_probe.py", retrieval_probe)
+    shutil.copy2(scripts_directory / "solve_question_rubric.py", solver)
+    retrieval_probe.chmod(0o444)
+    solver.chmod(0o444)
     return FactWorkspace(
         directory=directory,
         facts_directory=facts_directory,
         outputs_directory=outputs_directory,
         entity_index=entity_index,
         validator=validator,
+        retrieval_probe=retrieval_probe,
+        solver=solver,
+        audits_directory=audits_directory,
         allowed_doc_ids=frozenset(allowed_doc_ids),
     )

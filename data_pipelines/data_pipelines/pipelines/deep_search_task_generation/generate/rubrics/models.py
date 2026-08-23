@@ -10,6 +10,7 @@ from data_pipelines.pipelines.deep_search_task_generation.models import (
 )
 
 DEFAULT_PI_MODEL = "accounts/fireworks/models/deepseek-v4-flash-0731"
+DEFAULT_SOLVER_MODEL = "deepseek/deepseek-v4-flash-0731"
 
 
 class PiThinkingLevel(str, Enum):
@@ -41,6 +42,9 @@ class FactWorkspace:
     outputs_directory: Path
     entity_index: Path
     validator: Path
+    retrieval_probe: Path
+    solver: Path
+    audits_directory: Path
     allowed_doc_ids: frozenset[int]
 
 

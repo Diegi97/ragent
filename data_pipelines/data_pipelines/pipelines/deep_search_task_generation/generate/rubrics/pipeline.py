@@ -1,5 +1,7 @@
 import asyncio
 import json
+import os
+import sys
 import tempfile
 from collections import Counter
 from functools import partial
@@ -12,7 +14,9 @@ from prefect.client.orchestration import get_client
 from prefect.concurrency.asyncio import concurrency
 from prefect.runtime import flow_run
 
+from data_pipelines.pipelines.deep_search_task_generation.config import REPOSITORY_ROOT
 from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.models import (
+    DEFAULT_SOLVER_MODEL,
     FactWorkspace,
     PiThinkingLevel,
     QuestionRubricAssignment,
@@ -29,6 +33,7 @@ from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.promp
     build_question_rubric_user_prompt,
 )
 from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.validation import (
+    validate_question_rubric_audits,
     validate_question_rubric_file,
 )
 from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.workspace import (
@@ -58,19 +63,27 @@ from data_pipelines.tracing import (
 )
 
 PI_CONCURRENCY_LIMIT = "deep-search-tasks-pi-agent"
+DEEP_SEARCH_PROJECT = REPOSITORY_ROOT / "environments/ragent_deep_search"
+EVALUATION_CONFIG = DEEP_SEARCH_PROJECT / "evaluation.toml"
+PI_CODING_AGENT_DIRECTORY_ENV = "PI_CODING_AGENT_DIR"
+PI_PHOENIX_EXTENSION = Path("npm/node_modules/pi-phoenix/index.ts")
 
 
 def _validate_runtime_parameters(
     model: str,
+    solver_model: str,
     thinking: str | None,
     num_question_rubrics: int,
     pi_concurrency: int,
     max_attempts: int,
     download_timeout: float,
-) -> tuple[str, str | None]:
+) -> tuple[str, str, str | None]:
     model = model.strip()
     if not model:
         raise ValueError("model must not be blank")
+    solver_model = solver_model.strip()
+    if not solver_model:
+        raise ValueError("solver_model must not be blank")
     if thinking is not None:
         thinking = thinking.strip().lower()
         allowed_thinking_levels = {level.value for level in PiThinkingLevel}
@@ -87,7 +100,9 @@ def _validate_runtime_parameters(
         raise ValueError("max_attempts must be at least 1")
     if download_timeout <= 0:
         raise ValueError("download_timeout must be greater than 0")
-    return model, thinking
+    if not EVALUATION_CONFIG.is_file():
+        raise FileNotFoundError(f"evaluation config not found: {EVALUATION_CONFIG}")
+    return model, solver_model, thinking
 
 
 async def _upsert_pi_concurrency_limit(limit: int) -> None:
@@ -95,6 +110,18 @@ async def _upsert_pi_concurrency_limit(limit: int) -> None:
         await client.upsert_global_concurrency_limit_by_name(
             PI_CONCURRENCY_LIMIT, limit
         )
+
+
+def _pi_phoenix_extension() -> Path:
+    configured_directory = os.getenv(PI_CODING_AGENT_DIRECTORY_ENV, "").strip()
+    agent_directory = Path(configured_directory or "~/.pi/agent").expanduser()
+    extension = (agent_directory / PI_PHOENIX_EXTENSION).resolve()
+    if not extension.is_file():
+        raise FileNotFoundError(
+            f"pi-phoenix extension not found at {extension}; install it with "
+            "'pi install npm:pi-phoenix' or set PI_CODING_AGENT_DIR"
+        )
+    return extension
 
 
 def order_entity_facts(
@@ -148,6 +175,7 @@ async def run_pi(
     thinking: str | None,
     folder: Path,
     system_instructions: str,
+    environment: dict[str, str],
 ) -> None:
     folder = folder.resolve()
     if not folder.is_dir():
@@ -158,12 +186,15 @@ async def run_pi(
         "--no-session",
         "--model",
         model,
+        "--no-extensions",
+        "--extension",
+        str(_pi_phoenix_extension()),
     ]
     if thinking is not None:
         command.extend(["--thinking", thinking])
     command.extend(
         [
-            "--append-system-prompt",
+            "--system-prompt",
             system_instructions,
             prompt,
         ]
@@ -171,6 +202,7 @@ async def run_pi(
     process = await asyncio.create_subprocess_exec(
         *command,
         cwd=folder,
+        env={**os.environ, **environment},
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -204,6 +236,7 @@ async def run_question_rubric_attempt(
     attempt: int,
     previous_errors: list[str],
     model: str,
+    solver_model: str,
     thinking: str | None,
     workspace: FactWorkspace,
 ) -> QuestionRubricAttempt:
@@ -245,6 +278,14 @@ async def run_question_rubric_attempt(
                         thinking=thinking,
                         folder=workspace.directory,
                         system_instructions=QUESTION_RUBRIC_AGENT_SYSTEM_PROMPT,
+                        environment={
+                            "RAGENT_PYTHON_EXECUTABLE": sys.executable,
+                            "RAGENT_EVALUATION_CONFIG": str(EVALUATION_CONFIG),
+                            "RAGENT_DEEP_SEARCH_SOURCE": str(DEEP_SEARCH_PROJECT),
+                            "RAGENT_DATA_SOURCE": assignment.entity_fact.data_source,
+                            "RAGENT_SOLVER_MODEL": solver_model,
+                            "RAGENT_AUDITS_DIRECTORY": str(workspace.audits_directory),
+                        },
                     )
                 record = await anyio.to_thread.run_sync(
                     partial(
@@ -253,6 +294,12 @@ async def run_question_rubric_attempt(
                         allowed_doc_ids=workspace.allowed_doc_ids,
                         expected_entity=assignment.entity_fact.entity_name,
                     )
+                )
+                await anyio.to_thread.run_sync(
+                    validate_question_rubric_audits,
+                    output_path,
+                    workspace.audits_directory,
+                    record,
                 )
                 set_span_output(span, record.model_dump(mode="json"))
             root.set_output(record.model_dump(mode="json"))
@@ -274,6 +321,7 @@ async def generate_question_rubrics(
     assignments: Sequence[QuestionRubricAssignment],
     *,
     model: str,
+    solver_model: str,
     thinking: str | None,
     max_attempts: int,
     workspace: FactWorkspace,
@@ -297,6 +345,7 @@ async def generate_question_rubrics(
                     attempt=attempt,
                     previous_errors=errors[assignment.slot],
                     model=model,
+                    solver_model=solver_model,
                     thinking=thinking,
                     workspace=workspace,
                 )
@@ -373,13 +422,15 @@ async def generate_deep_search_rubrics_flow(
     batch_output_dataset_name: str,
     model: str,
     num_question_rubrics: int,
+    solver_model: str = DEFAULT_SOLVER_MODEL,
     thinking: str | None = None,
     pi_concurrency: int = 10,
     max_attempts: int = 4,
     download_timeout: float = 600.0,
 ) -> dict[str, Any]:
-    model, thinking = _validate_runtime_parameters(
+    model, solver_model, thinking = _validate_runtime_parameters(
         model,
+        solver_model,
         thinking,
         num_question_rubrics,
         pi_concurrency,
@@ -435,6 +486,7 @@ async def generate_deep_search_rubrics_flow(
                     accepted, errors, trace_ids = await generate_question_rubrics(
                         assignments,
                         model=model,
+                        solver_model=solver_model,
                         thinking=thinking,
                         max_attempts=max_attempts,
                         workspace=workspace,
@@ -479,6 +531,7 @@ async def generate_deep_search_rubrics_flow(
                 ),
                 "rubric_finalize_config": {
                     "model": model,
+                    "solver_model": solver_model,
                     "thinking": thinking,
                     "num_question_rubrics": num_question_rubrics,
                     "pi_concurrency": pi_concurrency,
@@ -515,6 +568,7 @@ async def generate_deep_search_rubrics_flow(
         "prepare_config": prepare_metadata.get("config"),
         "rubric_finalize_config": {
             "model": model,
+            "solver_model": solver_model,
             "thinking": thinking,
             "num_question_rubrics": num_question_rubrics,
             "pi_concurrency": pi_concurrency,

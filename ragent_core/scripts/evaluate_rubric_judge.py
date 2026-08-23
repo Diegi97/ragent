@@ -36,20 +36,19 @@ from pathlib import Path
 from typing import Any
 
 import verifiers.v1 as vf
-from verifiers.v1.judges.rubric import Criterion
 
-from ragent_core.judges.rubric import RubricJudge, RubricJudgeConfig
+from ragent_core.judges.rubric import JudgeCriterion, RubricJudge, RubricJudgeConfig
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 DEFAULT_BASE_URL = "https://api.pinference.ai/api/v1"
 DEFAULT_API_KEY_VAR = "PRIME_API_KEY"
 
 
 @dataclass(frozen=True)
 class GroundTruthCriterion:
-    name: str
+    id: str
     text: str
     score: int
     index: int
@@ -164,11 +163,12 @@ def _trace_response(trace: dict[str, Any]) -> str:
 
 def _teacher_scores(
     trace: dict[str, Any],
-    expected_names: set[str],
+    expected_ids: set[str],
+    legacy_ids: dict[str, str],
 ) -> dict[str, int]:
     info = trace.get("info")
     calls = info.get("judge") if isinstance(info, dict) else None
-    if not isinstance(calls, list) or len(calls) != len(expected_names):
+    if not isinstance(calls, list) or len(calls) != len(expected_ids):
         raise ValueError(
             "trace must contain exactly one teacher judge call per rubric criterion"
         )
@@ -183,27 +183,30 @@ def _teacher_scores(
         verdict = parsed[0]
         if not isinstance(verdict, dict):
             raise ValueError(f"teacher call {call_index} has an invalid verdict")
-        name = verdict.get("name")
+        criterion_id = verdict.get("id", verdict.get("name"))
         answer = verdict.get("verdict")
-        if not isinstance(name, str) or name not in expected_names:
+        if isinstance(criterion_id, str):
+            criterion_id = legacy_ids.get(criterion_id, criterion_id)
+        if not isinstance(criterion_id, str) or criterion_id not in expected_ids:
             raise ValueError(
-                f"teacher call {call_index} returned unexpected criterion {name!r}"
+                "teacher call "
+                f"{call_index} returned unexpected criterion {criterion_id!r}"
             )
-        if name in scores:
-            raise ValueError(f"teacher returned duplicate verdict for {name!r}")
+        if criterion_id in scores:
+            raise ValueError(f"teacher returned duplicate verdict for {criterion_id!r}")
         if not isinstance(answer, str):
             raise ValueError(f"teacher call {call_index} has no verdict")
         normalized = answer.strip().casefold()
         if normalized == "yes":
-            scores[name] = 1
+            scores[criterion_id] = 1
         elif normalized == "no":
-            scores[name] = 0
+            scores[criterion_id] = 0
         else:
             raise ValueError(
-                f"teacher returned {answer!r} for {name}; expected yes or no"
+                f"teacher returned {answer!r} for {criterion_id}; expected yes or no"
             )
 
-    if set(scores) != expected_names:
+    if set(scores) != expected_ids:
         raise ValueError("teacher judgments do not cover every rubric criterion")
     return scores
 
@@ -234,27 +237,33 @@ def _example_from_trace(trace: dict[str, Any]) -> GroundTruthExample:
         if not isinstance(text, str) or not text.strip():
             raise ValueError(f"rubric criterion {criterion_index} has no text")
         criterion_items.append(
-            (f"criterion_{criterion_index:02d}", text.strip(), criterion_index)
+            (f"C-{criterion_index:03d}", text.strip(), criterion_index)
         )
 
-    expected_names = {name for name, _, _ in criterion_items}
-    teacher_scores = _teacher_scores(trace, expected_names)
+    expected_ids = {criterion_id for criterion_id, _, _ in criterion_items}
+    legacy_ids = {
+        f"criterion_{criterion_index:02d}": criterion_id
+        for criterion_id, _, criterion_index in criterion_items
+    }
+    teacher_scores = _teacher_scores(trace, expected_ids, legacy_ids)
     metrics = trace.get("metrics")
     if not isinstance(metrics, dict):
         raise ValueError("trace contains no criterion metrics")
 
     criteria: list[GroundTruthCriterion] = []
-    for name, text, criterion_index in criterion_items:
-        metric_name = f"rubric/{name}"
+    for criterion_id, text, criterion_index in criterion_items:
+        metric_name = f"rubric/{criterion_id}"
         metric = metrics.get(metric_name)
+        if metric is None:
+            metric = metrics.get(f"rubric/criterion_{criterion_index:02d}")
         if metric not in (0, 0.0, 1, 1.0):
             raise ValueError(f"trace contains no binary {metric_name!r} metric")
-        score = teacher_scores[name]
+        score = teacher_scores[criterion_id]
         if int(metric) != score:
             raise ValueError(f"teacher verdict and {metric_name!r} disagree")
         criteria.append(
             GroundTruthCriterion(
-                name=name,
+                id=criterion_id,
                 text=text,
                 score=score,
                 index=criterion_index,
@@ -325,16 +334,16 @@ def _response_details(trace: vf.Trace) -> tuple[str | None, dict[str, dict[str, 
         return None, {}
     raw_response = record.get("text")
     parsed = record.get("parsed")
-    by_name: dict[str, dict[str, str]] = {}
+    by_id: dict[str, dict[str, str]] = {}
     if isinstance(parsed, list):
         for item in parsed:
-            if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+            if not isinstance(item, dict) or not isinstance(item.get("id"), str):
                 continue
-            by_name[item["name"]] = {
+            by_id[item["id"]] = {
                 "reason": str(item.get("reason", "")),
                 "verdict": str(item.get("verdict", "")),
             }
-    return raw_response if isinstance(raw_response, str) else None, by_name
+    return raw_response if isinstance(raw_response, str) else None, by_id
 
 
 def _usage_details(trace: vf.Trace) -> dict[str, float | int | None] | None:
@@ -358,7 +367,7 @@ async def _grade_job(
     semaphore: asyncio.Semaphore,
 ) -> CallResult:
     trace = _make_trace(job)
-    batch = [Criterion(name=item.name, text=item.text) for item in job.criteria]
+    batch = [JudgeCriterion(id=item.id, text=item.text) for item in job.criteria]
     scores: dict[str, float] = {}
     error: str | None = None
     started = 0.0
@@ -381,17 +390,17 @@ async def _grade_job(
     )
     rows: list[dict[str, Any]] = []
     for position, criterion in enumerate(job.criteria, start=1):
-        prediction_value = scores.get(criterion.name) if error is None else None
+        prediction_value = scores.get(criterion.id) if error is None else None
         prediction = (
             int(prediction_value) if prediction_value in (0, 0.0, 1, 1.0) else None
         )
-        verdict = verdicts.get(criterion.name, {})
+        verdict = verdicts.get(criterion.id, {})
         rows.append(
             {
                 "schema_version": SCHEMA_VERSION,
                 "call_id": call_id,
                 "example_id": job.example.example_id,
-                "criterion_name": criterion.name,
+                "criterion_id": criterion.id,
                 "criterion_index": criterion.index,
                 "criterion": criterion.text,
                 "ground_truth": criterion.score,
@@ -693,7 +702,7 @@ def _comparisons(
     baseline_size = 1 if 1 in criteria_per_call else min(criteria_per_call)
     by_size: dict[int, dict[tuple[str, str], dict[str, Any]]] = defaultdict(dict)
     for row in rows:
-        key = (row["example_id"], row["criterion_name"])
+        key = (row["example_id"], row["criterion_id"])
         by_size[row["criteria_per_call"]][key] = row
     experiment_by_size = {
         experiment["criteria_per_call"]: experiment for experiment in experiments

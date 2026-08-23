@@ -1,9 +1,9 @@
 """Upload generated question-rubric records to a private Hugging Face dataset.
 
-The input batch is stratified by question type before it is added to the
-dataset's standard ``train`` and ``test`` splits. Existing split assignments
-are preserved. Pass ``--replace-data`` to replace records from one data source
-instead of appending another batch.
+The input batch is reproducibly divided between the dataset's standard
+``train`` and ``test`` splits. Existing split assignments are preserved. Pass
+``--replace-data`` to replace records from one data source instead of appending
+another batch.
 
 Usage:
     uv run --project data_pipelines python \
@@ -14,8 +14,6 @@ Usage:
 import argparse
 import json
 import logging
-import math
-from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +21,8 @@ from datasets import (
     Dataset,
     DatasetDict,
     Features,
+    List,
+    Value,
     concatenate_datasets,
     load_dataset,
 )
@@ -41,7 +41,21 @@ DEFAULT_HF_DATASET_ID = "diegi97/ragent-rubrics"
 DEFAULT_TEST_SIZE = 0.1
 SPLIT_SEED = 42
 SPLIT_NAMES = ("train", "test")
-STRATIFY_COLUMN = "_question_type_label"
+QUESTION_RUBRIC_FEATURES = Features(
+    {
+        "entity": Value("string"),
+        "evolution_strategies": List(Value("string")),
+        "question": Value("string"),
+        "rubric": List(
+            {
+                "criterion": Value("string"),
+                "doc_ids": List(Value("int64")),
+            }
+        ),
+        "doc_ids": List(Value("int64")),
+        "data_source": Value("string"),
+    }
+)
 
 
 def _test_size(value: str) -> float:
@@ -125,50 +139,18 @@ def load_question_rubrics(jsonl_path: Path, data_source: str) -> Dataset:
 
     if not records:
         raise ValueError(f"Question-rubric JSONL is empty: {jsonl_path}")
-    return Dataset.from_list(records)
+    return Dataset.from_list(records, features=QUESTION_RUBRIC_FEATURES)
 
 
-def stratify_dataset(dataset: Dataset, test_size: float) -> DatasetDict:
-    """Split a batch while retaining each question type in both splits."""
+def split_dataset(dataset: Dataset, test_size: float) -> DatasetDict:
+    """Reproducibly split an input batch into train and test records."""
     if not 0 < test_size < 1:
         raise ValueError("test size must be between 0 and 1")
-
-    question_type_counts = Counter(dataset["question_type"])
-    undersized_types = sorted(
-        question_type
-        for question_type, count in question_type_counts.items()
-        if count < 2
-    )
-    if undersized_types:
-        raise ValueError(
-            "Cannot stratify question types with fewer than two records: "
-            + ", ".join(undersized_types)
-        )
-
-    test_count = math.ceil(len(dataset) * test_size)
-    train_count = len(dataset) - test_count
-    type_count = len(question_type_counts)
-    if test_count < type_count or train_count < type_count:
-        raise ValueError(
-            f"Cannot stratify {len(dataset)} records across {type_count} question "
-            f"types with test_size={test_size}; both splits need at least "
-            f"{type_count} records"
-        )
-
-    encoded = dataset.add_column(
-        STRATIFY_COLUMN,
-        dataset["question_type"],
-    ).class_encode_column(STRATIFY_COLUMN)
-    splits = encoded.train_test_split(
+    if len(dataset) < 2:
+        raise ValueError("at least two records are required for a train/test split")
+    return dataset.train_test_split(
         test_size=test_size,
         seed=SPLIT_SEED,
-        stratify_by_column=STRATIFY_COLUMN,
-    )
-    return DatasetDict(
-        {
-            split_name: split.remove_columns(STRATIFY_COLUMN)
-            for split_name, split in splits.items()
-        }
     )
 
 
@@ -188,7 +170,18 @@ def load_remote_dataset(dataset_id: str) -> DatasetDict | None:
 def _align_existing_split(dataset: Dataset, features: Features) -> Dataset:
     expected_columns = list(features)
     actual_columns = set(dataset.column_names)
+    if "question_type" in actual_columns:
+        dataset = dataset.remove_columns("question_type")
+        actual_columns = set(dataset.column_names)
     missing_columns = set(expected_columns).difference(actual_columns)
+    if missing_columns == {"evolution_strategies"}:
+        dataset = dataset.add_column(
+            "evolution_strategies",
+            [[] for _ in range(len(dataset))],
+            feature=features["evolution_strategies"],
+        )
+        actual_columns = set(dataset.column_names)
+        missing_columns = set(expected_columns).difference(actual_columns)
     extra_columns = actual_columns.difference(expected_columns)
     if missing_columns or extra_columns:
         details: list[str] = []
@@ -270,18 +263,13 @@ def publish_dataset(dataset: DatasetDict, dataset_id: str, data_source: str) -> 
 def _log_split_summary(dataset: DatasetDict, prefix: str) -> None:
     for split_name in SPLIT_NAMES:
         split = dataset[split_name]
-        question_type_counts = Counter(split["question_type"])
-        counts = ", ".join(
-            f"{question_type}={count}"
-            for question_type, count in sorted(question_type_counts.items())
-        )
-        logger.info("%s %s: %d rows (%s)", prefix, split_name, len(split), counts)
+        logger.info("%s %s: %d rows", prefix, split_name, len(split))
 
 
 def main() -> None:
     args = _parse_args()
     data_source = args.data_source.strip()
-    incoming = stratify_dataset(
+    incoming = split_dataset(
         load_question_rubrics(args.jsonl_path, data_source),
         args.test_size,
     )

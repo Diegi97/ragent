@@ -20,7 +20,7 @@ Each dataset row has the following shape:
 {
   "data_source": "gitlab_handbook",
   "entity": "CVE",
-  "question_type": "Deep single-entity question",
+  "evolution_strategies": ["Gated Multi-Hop Chains"],
   "question": "...",
   "rubric": [
     {
@@ -32,7 +32,7 @@ Each dataset row has the following shape:
 }
 ```
 
-`data_source`, `entity`, `question_type`, `question`, `rubric`, and `doc_ids` are required for Hub records. `data_source` selects the matching Turbopuffer catalog corpus. For local pipeline output, the loader adds `data_source` from the sibling `metadata.json`; any row-level value is replaced by this authoritative metadata value. Criterion-level document IDs are metadata for the expected supporting sources.
+`data_source`, `entity`, `question`, `rubric`, and `doc_ids` are required for Hub records. `evolution_strategies` records the ordered hardening strategies applied by the synthesizer and defaults to an empty list for older records. `data_source` selects the matching Turbopuffer catalog corpus. For local pipeline output, the loader adds `data_source` from the sibling `metadata.json`; any row-level value is replaced by this authoritative metadata value. Criterion-level document IDs are metadata for the expected supporting sources.
 
 ### Task
 
@@ -42,7 +42,7 @@ Each dataset row has the following shape:
   - `search(queries)`: searches for several queries in one call.
   - `read(doc_ids)`: returns the full text of selected documents.
   - `text_scan(pattern, ...)`: scans the corpus for a fixed string or regular expression.
-- **Rubric**: Each dataset criterion becomes `criterion_01`, `criterion_02`, and so on. Criteria are graded in concurrent batches. Each criterion receives a binary `no`/`yes` score, and their weighted mean contributes 90% of the example reward.
+- **Rubric**: Each dataset criterion receives a short stable ID (`C-001`, `C-002`, and so on). Criteria are graded in concurrent batches, and the judge returns each result under an `<id>` field. Each criterion receives a binary `no`/`yes` score, and their weighted mean contributes 90% of the example reward.
 - **Citation grounding**: The remaining 10% is a deterministic binary reward. It requires inline document-ID citations, a matching deduplicated `## Sources` section, and a `search` result or successful `read` result for every cited ID.
 
 The retriever resolves the selected logical namespace through Turbopuffer's

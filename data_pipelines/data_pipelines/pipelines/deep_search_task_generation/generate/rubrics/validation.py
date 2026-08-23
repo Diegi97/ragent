@@ -6,6 +6,8 @@
 # ///
 
 import argparse
+import hashlib
+import json
 import logging
 import re
 from pathlib import Path
@@ -25,6 +27,17 @@ logger = logging.getLogger(__name__)
 INTEGER_PATTERN = re.compile(r"\d+")
 CRITERION_PATTERN = re.compile(r"(\d+)\.\s+(.+)")
 DOCUMENT_HEADING_PATTERN = re.compile(r"### Documents? (.+)")
+EVOLUTION_STRATEGIES = (
+    "Gated Multi-Hop Chains",
+    "Conditional Resolution",
+    "Cross-Entity Coupling",
+    "Candidate-Space Inflation",
+    "Near-Twin Collisions",
+    "Alias & Identity Disambiguation",
+    "Dimensional Comparison",
+    "Absence Verification",
+)
+NO_EVOLUTION_STRATEGIES = "None"
 
 
 class RubricCriterion(BaseModel):
@@ -53,18 +66,34 @@ class QuestionRubricRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     entity: str = Field(min_length=1)
-    question_type: str = Field(min_length=1)
+    evolution_strategies: list[str] = Field(default_factory=list)
     question: str = Field(min_length=1)
     rubric: list[RubricCriterion] = Field(min_length=2)
     doc_ids: list[StrictInt] = Field(min_length=3)
 
-    @field_validator("entity", "question_type", "question")
+    @model_validator(mode="before")
+    @classmethod
+    def discard_legacy_question_type(cls, value: Any) -> Any:
+        if isinstance(value, dict) and "question_type" in value:
+            value = dict(value)
+            value.pop("question_type")
+        return value
+
+    @field_validator("entity", "question")
     @classmethod
     def normalize_text(cls, value: str) -> str:
         value = value.strip()
         if not value:
             raise ValueError("value must not be blank")
         return value
+
+    @field_validator("evolution_strategies")
+    @classmethod
+    def validate_evolution_strategies(cls, value: list[str]) -> list[str]:
+        normalized = [item.strip() for item in value]
+        if any(not item for item in normalized):
+            raise ValueError("evolution strategy names must not be blank")
+        return normalized
 
     @model_validator(mode="after")
     def validate_rubric(self) -> "QuestionRubricRecord":
@@ -105,6 +134,17 @@ def _required_prefixed_value(line: str, prefix: str) -> str:
     return value
 
 
+def _parse_evolution_strategies(value: str) -> list[str]:
+    if value.casefold() == NO_EVOLUTION_STRATEGIES.casefold():
+        return []
+    strategies = [item.strip() for item in value.split(",")]
+    if any(not item for item in strategies):
+        raise ValueError(
+            "Evolution strategies must be 'None' or a comma-separated list"
+        )
+    return strategies
+
+
 def _load_workspace_doc_ids(facts_directory: Path) -> set[int]:
     doc_ids: set[int] = set()
     for path in facts_directory.rglob("*.md"):
@@ -125,15 +165,17 @@ def _load_workspace_doc_ids(facts_directory: Path) -> set[int]:
 
 def parse_question_rubric_markdown(path: Path) -> dict[str, Any]:
     lines = _nonblank_lines(path.read_text(encoding="utf-8"))
-    if len(lines) < 10:
+    if len(lines) < 9:
         raise ValueError("question-rubric Markdown is incomplete")
     if lines[0] != "# Question rubric":
         raise ValueError("first line must be '# Question rubric'")
 
     entity = _required_prefixed_value(lines[1], "Entity:")
-    question_type = _required_prefixed_value(lines[2], "Type:")
+    evolution_strategies = _parse_evolution_strategies(
+        _required_prefixed_value(lines[2], "Evolution strategies:")
+    )
     if lines[3] != "## Question":
-        raise ValueError("expected '## Question' after Type")
+        raise ValueError("expected '## Question' after Evolution strategies")
     question = lines[4]
     if lines[5] != "## Criteria":
         raise ValueError("expected '## Criteria' after the one-line question")
@@ -172,7 +214,7 @@ def parse_question_rubric_markdown(path: Path) -> dict[str, Any]:
         raise ValueError("'## Docs' must contain exactly one comma-separated line")
     return {
         "entity": entity,
-        "question_type": question_type,
+        "evolution_strategies": evolution_strategies,
         "question": question,
         "rubric": rubric,
         "doc_ids": _parse_doc_ids(
@@ -206,6 +248,67 @@ def validate_question_rubric_file(
                 + ", ".join(str(value) for value in unknown_doc_ids)
             )
     return record
+
+
+def question_rubric_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _load_audit(path: Path, *, label: str) -> dict[str, Any]:
+    if not path.is_file():
+        raise ValueError(f"missing {label} audit for final candidate: {path}")
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid {label} audit JSON: {exc}") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"{label} audit must be a JSON object")
+    return value
+
+
+def validate_question_rubric_audits(
+    path: Path,
+    audits_directory: Path,
+    record: QuestionRubricRecord,
+) -> None:
+    digest = question_rubric_sha256(path)
+    audit_prefix = audits_directory / path.name
+    retrieval = _load_audit(
+        audit_prefix.with_suffix(audit_prefix.suffix + ".retrieval.json"),
+        label="retrieval probe",
+    )
+    solver = _load_audit(
+        audit_prefix.with_suffix(audit_prefix.suffix + ".solver.json"),
+        label="solver",
+    )
+    for label, audit in (("retrieval probe", retrieval), ("solver", solver)):
+        if audit.get("candidate_sha256") != digest:
+            raise ValueError(f"{label} audit does not match the final candidate")
+        if audit.get("ok") is not True:
+            raise ValueError(f"{label} audit did not complete successfully")
+        if audit.get("question") != record.question:
+            raise ValueError(
+                f"{label} audit question does not match the final candidate"
+            )
+
+    retrieval_doc_ids = retrieval.get("supporting_doc_ids")
+    if retrieval_doc_ids != record.doc_ids:
+        raise ValueError(
+            "retrieval probe supporting_doc_ids do not match final candidate Docs"
+        )
+    if retrieval.get("probe_passed") is not True:
+        raise ValueError(
+            "final candidate did not pass the retrieval gate; evolve it before solving"
+        )
+    if solver.get("criteria_total") != len(record.rubric):
+        raise ValueError("solver audit criterion count does not match final rubric")
+    percent_passed = solver.get("percent_passed")
+    if not isinstance(percent_passed, int | float) or isinstance(percent_passed, bool):
+        raise ValueError("solver audit percent_passed must be numeric")
+    if percent_passed <= 10:
+        raise ValueError(
+            "solver passed 10% or fewer criteria; inspect and repair or discard the item"
+        )
 
 
 def main(argv: list[str] | None = None) -> int:

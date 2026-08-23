@@ -5,8 +5,7 @@ from collections.abc import Mapping
 from typing import Any, Self
 
 import verifiers.v1 as vf
-from pydantic import model_validator
-from verifiers.v1.judges.rubric import Criterion, CriterionVerdict
+from pydantic import BaseModel, Field, model_validator
 from verifiers.v1.utils.retries import retrying
 
 RUBRIC_PROMPT = """Given a task, a response, and grading criteria, determine whether the response satisfies each criterion.
@@ -26,21 +25,21 @@ Criteria:
 
 Verdict options: {negative_verdict}, {positive_verdict}
 
-For each criterion, provide a brief explanation of your assessment and the verdict that best matches it.
+For each criterion ID, provide a brief explanation of your assessment and the verdict that best matches it.
 
-Return exactly one evaluation per criterion, using each criterion's exact name. The
+Return exactly one evaluation per criterion, using each criterion's exact ID. The
 number of <criterion> children must equal the number of supplied criteria: one supplied
 criterion requires one child, and four supplied criteria require four children. For
 example, a batch of two criteria has this XML structure:
 
 <criteria>
   <criterion>
-    <name>exact name of the first supplied criterion</name>
+    <id>C-001</id>
     <reason>Brief explanation of the assessment</reason>
     <verdict>selected verdict</verdict>
   </criterion>
   <criterion>
-    <name>exact name of the second supplied criterion</name>
+    <id>C-002</id>
     <reason>Brief explanation of the assessment</reason>
     <verdict>selected verdict</verdict>
   </criterion>
@@ -60,8 +59,20 @@ _FIELD_XML_RE = {
         rf"<{field}(?:\s[^>]*)?>(.*?)</{field}\s*>",
         re.DOTALL,
     )
-    for field in ("name", "reason", "verdict")
+    for field in ("id", "reason", "verdict")
 }
+
+
+class JudgeCriterion(BaseModel):
+    id: str
+    text: str
+    weight: float = Field(default=1.0, gt=0)
+
+
+class CriterionVerdict(BaseModel):
+    id: str
+    reason: str
+    verdict: str
 
 
 class RubricJudgeConfig(vf.JudgeConfig):
@@ -123,7 +134,7 @@ def parse_xml_verdicts(text: str) -> list[CriterionVerdict]:
             root = ET.fromstring(block)
             for element in root.findall("./criterion"):
                 values: dict[str, str] = {}
-                for field in ("name", "reason", "verdict"):
+                for field in ("id", "reason", "verdict"):
                     child = element.find(field)
                     if child is not None:
                         values[field] = "".join(child.itertext()).strip()
@@ -151,7 +162,7 @@ class RubricJudge(vf.Judge[list[CriterionVerdict], RubricJudgeConfig]):
     ) -> list[CriterionVerdict]:
         return parse_xml_verdicts(response.text)
 
-    def _criteria(self, task: vf.TaskData) -> list[Criterion]:
+    def _criteria(self, task: vf.TaskData) -> list[JudgeCriterion]:
         raw_items = getattr(task, self.config.criteria_field, None)
         if raw_items is None:
             raise ValueError(
@@ -172,8 +183,8 @@ class RubricJudge(vf.Judge[list[CriterionVerdict], RubricJudgeConfig]):
             return text
 
         criteria = [
-            Criterion(
-                name=f"criterion_{index:02d}",
+            JudgeCriterion(
+                id=f"C-{index:03d}",
                 text=criterion_text(raw_item),
             )
             for index, raw_item in enumerate(raw_items, start=1)
@@ -205,10 +216,13 @@ class RubricJudge(vf.Judge[list[CriterionVerdict], RubricJudgeConfig]):
         trace: vf.Trace,
         question: str,
         response: str,
-        batch: list[Criterion],
+        batch: list[JudgeCriterion],
     ) -> dict[str, float]:
         rendered_criteria = "\n".join(
-            f"- {criterion.name}: {criterion.text}" for criterion in batch
+            f"- ID: {criterion.id}\n"
+            "  Match criteria: PASS if the response satisfies this requirement: "
+            f"{criterion.text} FAIL if it does not."
+            for criterion in batch
         )
         async for attempt in retrying(
             on=ValueError,
@@ -226,13 +240,13 @@ class RubricJudge(vf.Judge[list[CriterionVerdict], RubricJudgeConfig]):
                 )
                 verdicts = result.parsed or []
 
-                by_name = {criterion.name: criterion for criterion in batch}
-                actual_names = sorted(verdict.name for verdict in verdicts)
-                expected_names = sorted(by_name)
-                if actual_names != expected_names:
+                by_id = {criterion.id: criterion for criterion in batch}
+                actual_ids = sorted(verdict.id for verdict in verdicts)
+                expected_ids = sorted(by_id)
+                if actual_ids != expected_ids:
                     raise ValueError(
-                        f"judge returned verdicts for {actual_names}; "
-                        f"expected {expected_names}"
+                        f"judge returned verdicts for {actual_ids}; "
+                        f"expected {expected_ids}"
                     )
 
                 negative = self.config.negative_verdict.strip().casefold()
@@ -241,13 +255,13 @@ class RubricJudge(vf.Judge[list[CriterionVerdict], RubricJudgeConfig]):
                 for verdict in verdicts:
                     normalized = verdict.verdict.strip().casefold()
                     if normalized == positive:
-                        scores[verdict.name] = 1.0
+                        scores[verdict.id] = 1.0
                     elif normalized == negative:
-                        scores[verdict.name] = 0.0
+                        scores[verdict.id] = 0.0
                     else:
                         raise ValueError(
                             f"judge returned verdict {verdict.verdict!r} for "
-                            f"{verdict.name!r}; expected "
+                            f"{verdict.id!r}; expected "
                             f"{self.config.negative_verdict!r} or "
                             f"{self.config.positive_verdict!r}"
                         )
@@ -297,11 +311,11 @@ class RubricJudge(vf.Judge[list[CriterionVerdict], RubricJudgeConfig]):
         }
         for criterion in criteria:
             trace.record_metric(
-                f"{self.reward_name}/{criterion.name}", scores[criterion.name]
+                f"{self.reward_name}/{criterion.id}", scores[criterion.id]
             )
 
         total_weight = sum(criterion.weight for criterion in criteria)
         return (
-            sum(criterion.weight * scores[criterion.name] for criterion in criteria)
+            sum(criterion.weight * scores[criterion.id] for criterion in criteria)
             / total_weight
         )

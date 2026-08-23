@@ -19,6 +19,7 @@ from data_pipelines.pipelines.deep_search_task_generation.generate.qa.pipeline i
 )
 from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.models import (
     DEFAULT_PI_MODEL,
+    DEFAULT_SOLVER_MODEL,
     PiThinkingLevel,
 )
 from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.pipeline import (
@@ -379,6 +380,16 @@ def generate_deep_search_rubrics(
             help="PI model used to generate question-rubric records.",
         ),
     ] = DEFAULT_PI_MODEL,
+    solver_model: Annotated[
+        str,
+        typer.Option(
+            "--solver-model",
+            help=(
+                "Model used for each single-rollout difficulty evaluation. "
+                "Other evaluation settings come from the deep-search environment."
+            ),
+        ),
+    ] = DEFAULT_SOLVER_MODEL,
     thinking: Annotated[
         PiThinkingLevel | None,
         typer.Option(
@@ -426,6 +437,7 @@ def generate_deep_search_rubrics(
             prepare_run_directory=prepare_run_directory,
             batch_output_dataset_name=batch_output_dataset_name,
             model=model,
+            solver_model=solver_model,
             thinking=thinking.value if thinking is not None else None,
             num_question_rubrics=num_question_rubrics,
             pi_concurrency=pi_concurrency,

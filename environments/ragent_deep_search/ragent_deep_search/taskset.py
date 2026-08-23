@@ -110,7 +110,7 @@ class RagentData(vf.TaskData):
     rubric: list[RagentRubricItem]
     table_name: str
     doc_ids: list[int | str]
-    complexity: str
+    evolution_strategies: list[str] = Field(default_factory=list)
 
 
 class RagentTaskConfig(vf.TaskConfig):
@@ -165,7 +165,7 @@ class RagentTaskset(vf.Taskset[RagentTask, RagentConfig]):
                 rubric=row["rubric"],
                 table_name=row["data_source"],
                 doc_ids=row["doc_ids"],
-                complexity=row["question_type"],
+                evolution_strategies=row.get("evolution_strategies") or [],
             )
             tasks.append(RagentTask(data, self.config.task))
         return tasks
