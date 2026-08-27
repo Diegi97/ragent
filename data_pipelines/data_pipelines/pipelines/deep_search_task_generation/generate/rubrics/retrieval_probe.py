@@ -23,14 +23,10 @@ from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.valid
 
 EVALUATION_CONFIG_ENV = "RAGENT_EVALUATION_CONFIG"
 DATA_SOURCE_ENV = "RAGENT_DATA_SOURCE"
-DEEP_SEARCH_SOURCE_ENV = "RAGENT_DEEP_SEARCH_SOURCE"
 AUDITS_DIRECTORY_ENV = "RAGENT_AUDITS_DIRECTORY"
 
 
 def _runtime_types() -> tuple[type[Any], type[Any]]:
-    source = os.getenv(DEEP_SEARCH_SOURCE_ENV)
-    if source and source not in sys.path:
-        sys.path.insert(0, source)
     from ragent_deep_search.toolset import RagentToolset, RagentToolsetConfig
 
     return RagentToolset, RagentToolsetConfig

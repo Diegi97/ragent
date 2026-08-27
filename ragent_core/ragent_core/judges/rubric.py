@@ -2,7 +2,7 @@ import asyncio
 import re
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping
-from typing import Any, Self
+from typing import Any, Literal, Self
 
 import verifiers.v1 as vf
 from pydantic import BaseModel, Field, model_validator
@@ -23,25 +23,33 @@ Response:
 Criteria:
 {criteria}
 
-Verdict options: {negative_verdict}, {positive_verdict}
+The only allowed verdict values are {positive_verdict} and {negative_verdict}.
 
 For each criterion ID, provide a brief explanation of your assessment and the verdict that best matches it.
 
-Return exactly one evaluation per criterion, using each criterion's exact ID. The
-number of <criterion> children must equal the number of supplied criteria: one supplied
-criterion requires one child, and four supplied criteria require four children. For
-example, a batch of two criteria has this XML structure:
+Do not forget the required outer <criteria> root: the response must begin with <criteria> and end with </criteria>.
+Never return bare <criterion> elements without that outer root.
+
+Return exactly one evaluation per criterion, using each criterion's exact ID. Each
+<criterion> must contain exactly one <id>, one <reason>, and one <verdict> child, in
+that order. Always use the <reason> tag for the explanation; never use <explanation>,
+<rationale>, or any other substitute. The <verdict> text must be exactly
+{positive_verdict} or {negative_verdict}.
+
+The number of <criterion> children must equal the number of supplied criteria: one
+supplied criterion requires one child, and four supplied criteria require four
+children. For example, a batch of two criteria has this XML structure:
 
 <criteria>
   <criterion>
     <id>C-001</id>
     <reason>Brief explanation of the assessment</reason>
-    <verdict>selected verdict</verdict>
+    <verdict>{positive_verdict}</verdict>
   </criterion>
   <criterion>
     <id>C-002</id>
     <reason>Brief explanation of the assessment</reason>
-    <verdict>selected verdict</verdict>
+    <verdict>{negative_verdict}</verdict>
   </criterion>
 </criteria>
 """
@@ -82,8 +90,8 @@ class RubricJudgeConfig(vf.JudgeConfig):
     criteria_field: str = "rubric"
     question_field: str = "question"
     view: vf.JudgeView = "last_reply"
-    negative_verdict: str = "no"
-    positive_verdict: str = "yes"
+    negative_verdict: Literal["FAIL"] = "FAIL"
+    positive_verdict: Literal["PASS"] = "PASS"
     max_criteria: int | None = 4
     """Maximum criteria per judge call. ``None`` grades all criteria in one call."""
     max_retries: int = 5

@@ -297,7 +297,6 @@ async def run_question_rubric_attempt(
                         environment={
                             "RAGENT_PYTHON_EXECUTABLE": sys.executable,
                             "RAGENT_EVALUATION_CONFIG": str(EVALUATION_CONFIG),
-                            "RAGENT_DEEP_SEARCH_SOURCE": str(DEEP_SEARCH_PROJECT),
                             "RAGENT_DATA_SOURCE": assignment.entity_fact.data_source,
                             "RAGENT_SOLVER_MODEL": solver_model,
                             "RAGENT_AUDITS_DIRECTORY": str(workspace.audits_directory),

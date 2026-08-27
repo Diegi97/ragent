@@ -3529,6 +3529,7 @@ name = "ragent-deep-search"
 version = "0.2.4"
 source = { editable = "." }
 dependencies = [
+    { name = "pydantic" },
     { name = "python-dotenv" },
     { name = "ragent-core" },
     { name = "verifiers" },
@@ -3536,6 +3537,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "pydantic", specifier = ">=2.13.4" },
     { name = "python-dotenv", specifier = ">=1.1.1" },
     { name = "ragent-core", specifier = "==0.4.1" },
     { name = "verifiers", specifier = ">=0.3.0" },

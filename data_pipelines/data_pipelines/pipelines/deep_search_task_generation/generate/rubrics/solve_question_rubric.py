@@ -22,7 +22,6 @@ from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.valid
 
 EVALUATION_CONFIG_ENV = "RAGENT_EVALUATION_CONFIG"
 DATA_SOURCE_ENV = "RAGENT_DATA_SOURCE"
-DEEP_SEARCH_SOURCE_ENV = "RAGENT_DEEP_SEARCH_SOURCE"
 AUDITS_DIRECTORY_ENV = "RAGENT_AUDITS_DIRECTORY"
 SOLVER_MODEL_ENV = "RAGENT_SOLVER_MODEL"
 CITATION_RE = re.compile(r"\[(?:doc|docs)\s+(\d+(?:\s*,\s*\d+)*)\]", re.I)
@@ -32,7 +31,6 @@ CITATION_RE = re.compile(r"\[(?:doc|docs)\s+(\d+(?:\s*,\s*\d+)*)\]", re.I)
 class SolverSettings:
     evaluation_config: Path
     data_source: str
-    deep_search_source: Path
     audits_directory: Path
     solver_model: str
 
@@ -54,24 +52,16 @@ def _validate_settings(values: dict[str, str | None]) -> SolverSettings:
         )
 
     evaluation_config = Path(values[EVALUATION_CONFIG_ENV] or "").expanduser().resolve()
-    deep_search_source = (
-        Path(values[DEEP_SEARCH_SOURCE_ENV] or "").expanduser().resolve()
-    )
     audits_directory = Path(values[AUDITS_DIRECTORY_ENV] or "").expanduser().resolve()
     if not evaluation_config.is_file():
         raise FileNotFoundError(
             f"evaluation config does not exist: {evaluation_config}"
-        )
-    if not deep_search_source.is_dir():
-        raise FileNotFoundError(
-            f"deep-search source directory does not exist: {deep_search_source}"
         )
     if not audits_directory.is_dir():
         raise FileNotFoundError(f"audits directory does not exist: {audits_directory}")
     return SolverSettings(
         evaluation_config=evaluation_config,
         data_source=(values[DATA_SOURCE_ENV] or "").strip(),
-        deep_search_source=deep_search_source,
         audits_directory=audits_directory,
         solver_model=(values[SOLVER_MODEL_ENV] or "").strip(),
     )
@@ -84,15 +74,12 @@ def _load_runtime() -> SolverRuntime:
             for variable in (
                 EVALUATION_CONFIG_ENV,
                 DATA_SOURCE_ENV,
-                DEEP_SEARCH_SOURCE_ENV,
                 AUDITS_DIRECTORY_ENV,
                 SOLVER_MODEL_ENV,
             )
         }
     )
     load_dotenv(settings.evaluation_config.with_name(".env"), override=True)
-    if str(settings.deep_search_source) not in sys.path:
-        sys.path.insert(0, str(settings.deep_search_source))
 
     import verifiers.v1 as vf
     from verifiers.v1.cli.eval.runner import run_eval

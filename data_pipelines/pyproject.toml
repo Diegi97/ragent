@@ -19,6 +19,7 @@ dependencies = [
     "pydantic>=2.11.0",
     "python-dotenv>=1.1.0",
     "ragent-core",
+    "ragent-deep-search",
     "typer>=0.16.0",
 ]
 
@@ -35,6 +36,7 @@ dev = [
 
 [tool.uv.sources]
 ragent-core = { path = "../ragent_core", editable = true }
+ragent-deep-search = { path = "../environments/ragent_deep_search", editable = true }
 
 [build-system]
 requires = ["hatchling"]
