@@ -199,10 +199,22 @@ def _citation_ids(answer: str) -> list[int]:
     )
 
 
+def _error_detail(value: Any) -> str:
+    last_error = getattr(value, "last_error", None)
+    if last_error is not None:
+        return str(getattr(last_error, "message", last_error))
+    errors = getattr(value, "errors", None) or []
+    if errors:
+        error = errors[-1]
+        if isinstance(error, dict):
+            return str(error.get("message") or error)
+        return str(getattr(error, "message", error))
+    return "unknown error"
+
+
 def _report(record: QuestionRubricRecord, trace: Any, digest: str) -> dict[str, Any]:
     if not trace.ok:
-        detail = trace.last_error.message if trace.last_error is not None else "unknown"
-        raise RuntimeError(f"solver rollout failed: {detail}")
+        raise RuntimeError(f"solver rollout failed: {_error_detail(trace)}")
     verdicts = _judge_verdicts(trace)
     judgments: list[dict[str, Any]] = []
     passed = 0
@@ -260,7 +272,10 @@ async def _solve(candidate: Path) -> dict[str, Any]:
     if len(episodes) != 1 or len(episodes[0].traces) != 1:
         raise RuntimeError("solver evaluation did not return exactly one rollout")
     if not episodes[0].ok:
-        detail = episodes[0].last_error
+        episode = episodes[0]
+        detail = _error_detail(episode)
+        if detail == "unknown error":
+            detail = _error_detail(episode.traces[0])
         raise RuntimeError(f"solver evaluation failed: {detail}")
     result = _report(record, episodes[0].traces[0], digest)
     _write_json(audit_path, result)

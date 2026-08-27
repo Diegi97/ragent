@@ -26,8 +26,8 @@ class PiThinkingLevel(str, Enum):
 @dataclass(frozen=True)
 class RubricFinalizePaths:
     directory: Path
-    raw_directory: Path
     outputs_directory: Path
+    sessions_directory: Path
     entity_facts: Path
     question_rubrics: Path
     failures: Path

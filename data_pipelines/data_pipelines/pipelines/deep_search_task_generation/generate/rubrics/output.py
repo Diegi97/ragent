@@ -12,14 +12,14 @@ def initialize_rubric_finalize_output(
 ) -> RubricFinalizePaths:
     directory = prepare_directory / f"rubric_finalize_{utc_timestamp()}_{run_id[:8]}"
     directory.mkdir(parents=False, exist_ok=False)
-    raw_directory = directory / "raw"
-    raw_directory.mkdir(exist_ok=False)
     outputs_directory = directory / "outputs"
     outputs_directory.mkdir(exist_ok=False)
+    sessions_directory = directory / "sessions"
+    sessions_directory.mkdir(exist_ok=False)
     paths = RubricFinalizePaths(
         directory=directory,
-        raw_directory=raw_directory,
         outputs_directory=outputs_directory,
+        sessions_directory=sessions_directory,
         entity_facts=directory / "entity_facts.jsonl",
         question_rubrics=directory / "question_rubrics.jsonl",
         failures=directory / "failures.jsonl",

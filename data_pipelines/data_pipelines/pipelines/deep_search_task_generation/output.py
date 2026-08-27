@@ -7,6 +7,7 @@ from typing import Any, Iterable, Sequence
 from filelock import FileLock
 
 from data_pipelines.pipelines.deep_search_task_generation.config import (
+    FACT_RESPONSES_RELATIVE_PATH,
     DeepSearchTaskGenerationConfig,
 )
 from data_pipelines.pipelines.deep_search_task_generation.models import PreparePaths
@@ -33,6 +34,7 @@ def initialize_prepare_output(
     retrieval_debug_directory.mkdir()
     paths = PreparePaths(
         directory=directory,
+        fact_responses=directory / FACT_RESPONSES_RELATIVE_PATH,
         retrieval_debug_directory=retrieval_debug_directory,
         entities=directory / "entities.jsonl",
         fact_requests=directory / "fact_requests.jsonl",

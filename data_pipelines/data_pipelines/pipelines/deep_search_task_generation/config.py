@@ -9,6 +9,7 @@ REPOSITORY_ROOT = PROJECT_ROOT.parent
 DEFAULT_ENTITY_MODEL_ID = "accounts/fireworks/models/deepseek-v4-flash-0731"
 DEFAULT_QA_MODEL_ID = "accounts/fireworks/models/kimi-k3"
 DEFAULT_RETRIEVER_WORKER_PORT = 8765
+FACT_RESPONSES_RELATIVE_PATH = Path("fact_responses.jsonl")
 
 
 class DeepSearchTaskGenerationConfig(BaseModel):

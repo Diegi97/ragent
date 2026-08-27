@@ -366,13 +366,6 @@ def generate_deep_search_rubrics(
             help="Directory produced by the prepare command.",
         ),
     ],
-    batch_output_dataset_name: Annotated[
-        str,
-        typer.Option(
-            "--batch-dataset",
-            help="Completed Fireworks output dataset name.",
-        ),
-    ],
     model: Annotated[
         str,
         typer.Option(
@@ -421,28 +414,18 @@ def generate_deep_search_rubrics(
             help="Maximum PI attempts for each assigned output slot.",
         ),
     ] = 4,
-    download_timeout: Annotated[
-        float,
-        typer.Option(
-            "--download-timeout",
-            min=0.001,
-            help="Fireworks batch-output download timeout in seconds.",
-        ),
-    ] = 600.0,
 ) -> None:
     """Generate question-rubric records with PI from extracted entity facts."""
     load_dotenv()
     metadata = asyncio.run(
         generate_deep_search_rubrics_flow(
             prepare_run_directory=prepare_run_directory,
-            batch_output_dataset_name=batch_output_dataset_name,
             model=model,
             solver_model=solver_model,
             thinking=thinking.value if thinking is not None else None,
             num_question_rubrics=num_question_rubrics,
             pi_concurrency=pi_concurrency,
             max_attempts=max_attempts,
-            download_timeout=download_timeout,
         )
     )
     typer.echo(json.dumps(metadata, indent=2, ensure_ascii=False))

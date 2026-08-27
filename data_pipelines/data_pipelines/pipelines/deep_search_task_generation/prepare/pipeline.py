@@ -540,6 +540,7 @@ async def prepare_deep_search_tasks_flow(
         },
         "paths": {
             "prepare_run_directory": str(paths.directory),
+            "fact_responses": str(paths.fact_responses),
             "entities": str(paths.entities),
             "retrieval_debug_directory": str(paths.retrieval_debug_directory),
             "fact_requests": str(paths.fact_requests),

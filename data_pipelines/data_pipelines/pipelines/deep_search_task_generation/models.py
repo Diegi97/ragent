@@ -55,6 +55,7 @@ class EntityFactMemoryRecord:
 @dataclass(frozen=True)
 class PreparePaths:
     directory: Path
+    fact_responses: Path
     retrieval_debug_directory: Path
     entities: Path
     fact_requests: Path

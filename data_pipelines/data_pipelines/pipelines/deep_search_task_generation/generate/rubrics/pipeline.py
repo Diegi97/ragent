@@ -14,7 +14,10 @@ from prefect.client.orchestration import get_client
 from prefect.concurrency.asyncio import concurrency
 from prefect.runtime import flow_run
 
-from data_pipelines.pipelines.deep_search_task_generation.config import REPOSITORY_ROOT
+from data_pipelines.pipelines.deep_search_task_generation.config import (
+    FACT_RESPONSES_RELATIVE_PATH,
+    REPOSITORY_ROOT,
+)
 from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.models import (
     DEFAULT_SOLVER_MODEL,
     FactWorkspace,
@@ -40,7 +43,6 @@ from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.works
     create_fact_workspace,
 )
 from data_pipelines.pipelines.deep_search_task_generation.generate.shared import (
-    download_output,
     parse_fact_output,
 )
 from data_pipelines.pipelines.deep_search_task_generation.models import (
@@ -76,7 +78,6 @@ def _validate_runtime_parameters(
     num_question_rubrics: int,
     pi_concurrency: int,
     max_attempts: int,
-    download_timeout: float,
 ) -> tuple[str, str, str | None]:
     model = model.strip()
     if not model:
@@ -98,8 +99,6 @@ def _validate_runtime_parameters(
         raise ValueError("pi_concurrency must be at least 1")
     if max_attempts < 1:
         raise ValueError("max_attempts must be at least 1")
-    if download_timeout <= 0:
-        raise ValueError("download_timeout must be greater than 0")
     if not EVALUATION_CONFIG.is_file():
         raise FileNotFoundError(f"evaluation config not found: {EVALUATION_CONFIG}")
     return model, solver_model, thinking
@@ -174,18 +173,26 @@ async def run_pi(
     model: str,
     thinking: str | None,
     folder: Path,
+    session_directory: Path,
+    session_name: str,
     system_instructions: str,
     environment: dict[str, str],
 ) -> None:
     folder = folder.resolve()
     if not folder.is_dir():
         raise ValueError(f"PI working directory does not exist: {folder}")
+    session_directory = session_directory.resolve()
+    if not session_directory.is_dir():
+        raise ValueError(f"PI session directory does not exist: {session_directory}")
     command = [
         "pi",
         "--print",
-        "--no-session",
         "--model",
         model,
+        "--session-dir",
+        str(session_directory),
+        "--name",
+        session_name,
         "--no-extensions",
         "--extension",
         str(_pi_phoenix_extension()),
@@ -226,7 +233,10 @@ async def run_pi(
 
 @task(
     name="generate-question-rubric-with-pi",
-    task_run_name="question-rubric-{assignment.slot}-{assignment.entity_fact.entity_name}",
+    task_run_name=(
+        "question-rubric-{assignment.slot}-{assignment.entity_fact.entity_name}"
+        "-attempt-{attempt}"
+    ),
     retries=0,
     persist_result=False,
 )
@@ -239,6 +249,7 @@ async def run_question_rubric_attempt(
     solver_model: str,
     thinking: str | None,
     workspace: FactWorkspace,
+    sessions_directory: Path,
 ) -> QuestionRubricAttempt:
     output_path = workspace.outputs_directory / assignment.filename
     output_path.unlink(missing_ok=True)
@@ -277,6 +288,11 @@ async def run_question_rubric_attempt(
                         model=model,
                         thinking=thinking,
                         folder=workspace.directory,
+                        session_directory=sessions_directory,
+                        session_name=(
+                            f"question-rubric-{assignment.slot}-"
+                            f"{assignment.entity_fact.entity_name}-attempt-{attempt}"
+                        ),
                         system_instructions=QUESTION_RUBRIC_AGENT_SYSTEM_PROMPT,
                         environment={
                             "RAGENT_PYTHON_EXECUTABLE": sys.executable,
@@ -325,6 +341,7 @@ async def generate_question_rubrics(
     thinking: str | None,
     max_attempts: int,
     workspace: FactWorkspace,
+    sessions_directory: Path,
 ) -> tuple[
     dict[int, QuestionRubricRecord],
     dict[int, list[str]],
@@ -348,6 +365,7 @@ async def generate_question_rubrics(
                     solver_model=solver_model,
                     thinking=thinking,
                     workspace=workspace,
+                    sessions_directory=sessions_directory,
                 )
                 for assignment in pending
             )
@@ -403,8 +421,8 @@ def _entity_summaries(
 def _paths_metadata(paths: RubricFinalizePaths) -> dict[str, str]:
     return {
         "rubric_finalize_run_directory": str(paths.directory),
-        "raw_directory": str(paths.raw_directory),
         "outputs_directory": str(paths.outputs_directory),
+        "sessions_directory": str(paths.sessions_directory),
         "entity_facts": str(paths.entity_facts),
         "question_rubrics": str(paths.question_rubrics),
         "failures": str(paths.failures),
@@ -413,20 +431,18 @@ def _paths_metadata(paths: RubricFinalizePaths) -> dict[str, str]:
 
 @flow(
     name="deep-search-tasks-generate-rubrics",
-    flow_run_name="deep-search-tasks-generate-rubrics-{batch_output_dataset_name}",
+    flow_run_name="deep-search-tasks-generate-rubrics",
     retries=0,
     persist_result=False,
 )
 async def generate_deep_search_rubrics_flow(
     prepare_run_directory: Path,
-    batch_output_dataset_name: str,
     model: str,
     num_question_rubrics: int,
     solver_model: str = DEFAULT_SOLVER_MODEL,
     thinking: str | None = None,
     pi_concurrency: int = 10,
     max_attempts: int = 4,
-    download_timeout: float = 600.0,
 ) -> dict[str, Any]:
     model, solver_model, thinking = _validate_runtime_parameters(
         model,
@@ -435,23 +451,25 @@ async def generate_deep_search_rubrics_flow(
         num_question_rubrics,
         pi_concurrency,
         max_attempts,
-        download_timeout,
     )
     prepare_run_directory = prepare_run_directory.expanduser().resolve()
     prepare_metadata = read_json(prepare_run_directory / "prepare_metadata.json")
+    fact_responses_path = prepare_run_directory / FACT_RESPONSES_RELATIVE_PATH
+    if not fact_responses_path.is_file():
+        raise FileNotFoundError(
+            f"Fireworks fact responses not found: {fact_responses_path}. Place "
+            f"{FACT_RESPONSES_RELATIVE_PATH.name} at this path before running "
+            "generate-rubrics."
+        )
     run_id = str(flow_run.id)
     tracing = configure_tracing(project_name=phoenix_project())
     paths = initialize_rubric_finalize_output(prepare_run_directory, run_id)
     stage = "configure_pi_concurrency"
     try:
         await _upsert_pi_concurrency_limit(pi_concurrency)
-        stage = "download_batch_output"
-        downloaded = await download_output(
-            batch_output_dataset_name, paths.raw_directory, download_timeout
-        )
         stage = "parse_batch_output"
         responses, entity_facts, diagnostics = await parse_fact_output(
-            downloaded, prepare_run_directory / "fact_requests.jsonl"
+            [fact_responses_path], prepare_run_directory / "fact_requests.jsonl"
         )
         ordered_entity_facts = order_entity_facts(
             entity_facts, prepare_run_directory / "entities.jsonl"
@@ -490,6 +508,7 @@ async def generate_deep_search_rubrics_flow(
                         thinking=thinking,
                         max_attempts=max_attempts,
                         workspace=workspace,
+                        sessions_directory=paths.sessions_directory,
                     )
                 finally:
                     copy_question_rubric_outputs(
@@ -536,7 +555,12 @@ async def generate_deep_search_rubrics_flow(
                     "num_question_rubrics": num_question_rubrics,
                     "pi_concurrency": pi_concurrency,
                     "max_attempts": max_attempts,
-                    "download_timeout": download_timeout,
+                },
+                "fireworks": {
+                    "input_dataset_name": prepare_metadata.get("fireworks", {}).get(
+                        "input_dataset_name"
+                    ),
+                    "output_file": str(fact_responses_path),
                 },
                 "failed_stage": stage,
                 "error": error,
@@ -573,15 +597,13 @@ async def generate_deep_search_rubrics_flow(
             "num_question_rubrics": num_question_rubrics,
             "pi_concurrency": pi_concurrency,
             "max_attempts": max_attempts,
-            "download_timeout": download_timeout,
         },
         "fireworks": {
             "input_dataset_name": prepare_metadata.get("fireworks", {}).get(
                 "input_dataset_name"
             ),
-            "output_dataset_name": batch_output_dataset_name,
+            "output_file": str(fact_responses_path),
         },
-        "downloaded_file_count": len(downloaded),
         "batch_response_count": len(responses),
         "entity_fact_count": len(ordered_entity_facts),
         "usable_entity_count": sum(

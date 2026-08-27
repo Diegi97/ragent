@@ -118,14 +118,19 @@ This skips entity extraction and loads up to `--num-entities` unique records in 
 
 For a smoke test, prepare one entity with `--num-entities 1` and confirm that `prepare_metadata.json` contains the retriever configuration.
 
-### 3. Generate question-rubric records
+### 3. Stage the Fireworks output and generate question-rubric records
 
-Finalize the Fireworks output with Pi agents:
+Download the completed Fireworks output once and place it at this exact path:
+
+```text
+data/deep_search_task_generation/<prepare-run>/fact_responses.jsonl
+```
+
+Then finalize the local output with Pi agents:
 
 ```bash
 uv run deep-search-tasks generate-rubrics \
   --prepare-dir data/deep_search_task_generation/<prepare-run> \
-  --batch-dataset <fireworks-output-dataset> \
   --model accounts/fireworks/models/kimi-k3 \
   --solver-model deepseek/deepseek-v4-flash-0731 \
   --num-rubrics 100 \
@@ -135,7 +140,8 @@ uv run deep-search-tasks generate-rubrics \
 
 Pi and the `pi-phoenix` package must be installed and configured in the environment running the flow (`pi install npm:pi-phoenix`). Each agent writes a Markdown question-rubric record.
 
-The requested rubric count is distributed round-robin over the prepared entities. Fireworks operations require `OPENAI_API_KEY` and `FIREWORKS_ACCOUNT_ID`. The retriever defaults to port `8765`; when overriding it, pass matching ports to `retriever` and `prepare`.
+The requested rubric count is distributed round-robin over the prepared entities. The retriever defaults to port `8765`;
+when overriding it, pass matching ports to `retriever` and `prepare`.
 
 ### Alternative: generate QA records
 
@@ -156,11 +162,16 @@ Prepare runs are written under `data/deep_search_task_generation/` and contain:
 <prepare-run>/
 ├── entities.jsonl
 ├── fact_requests.jsonl
+├── fact_responses.jsonl
 ├── failures.jsonl
 └── prepare_metadata.json
 ```
 
-Each rubric finalization creates an immutable `rubric_finalize_*` child directory with the raw Fireworks files, extracted `entity_facts.jsonl`, final `question_rubrics.jsonl`, failures, and metadata. QA generations create a separate child directory with equivalent provenance and `qas.jsonl`.
+Each rubric finalization creates an immutable `rubric_finalize_*` child directory
+with extracted `entity_facts.jsonl`, final `question_rubrics.jsonl`, failures,
+outputs, PI sessions and metadata. PI
+stores one named session per rubric attempt under `sessions/`. QA generations still
+create a separate child directory with downloaded raw files and `qas.jsonl`.
 
 Upload question-rubric records to Hugging Face with train and test splits:
 

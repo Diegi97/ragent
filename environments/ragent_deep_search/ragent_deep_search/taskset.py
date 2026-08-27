@@ -128,7 +128,7 @@ class RagentTask(vf.Task[RagentData, RagentState, RagentTaskConfig]):
         return await RubricJudge(self.config.judge).score(self.data, trace)
 
     @vf.reward(weight=CITATION_REWARD_WEIGHT)
-    def citation_grounding(self, trace: vf.Trace) -> float:
+    async def citation_grounding(self, trace: vf.Trace) -> float:
         return _citation_grounding_score(
             trace.last_reply,
             _evidence_document_ids(trace),

@@ -68,8 +68,8 @@ class QuestionRubricRecord(BaseModel):
     entity: str = Field(min_length=1)
     evolution_strategies: list[str] = Field(default_factory=list)
     question: str = Field(min_length=1)
-    rubric: list[RubricCriterion] = Field(min_length=2)
-    doc_ids: list[StrictInt] = Field(min_length=3)
+    rubric: list[RubricCriterion] = Field(min_length=1)
+    doc_ids: list[StrictInt] = Field(min_length=1)
 
     @model_validator(mode="before")
     @classmethod

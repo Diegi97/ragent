@@ -273,6 +273,9 @@ def build_question_rubric_user_prompt(
             "the solver, then validate and probe again. Run one solver rollout only after",
             "probe_passed=true. Do not modify scripts or audit files, and do not finish",
             "until the final version has matching passed-probe and solver audits.",
+            "In your final answer, briefly summarize the outcome, the main steps and",
+            "evolution strategies used, the final audit results, and any errors found,",
+            "fixed, or left unresolved.",
         ]
     )
     return "\n".join(lines)
