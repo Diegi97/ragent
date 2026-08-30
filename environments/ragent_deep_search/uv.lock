@@ -3499,7 +3499,7 @@ wheels = [
 
 [[package]]
 name = "ragent-core"
-version = "0.4.1"
+version = "0.4.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "chonkie" },
@@ -3519,9 +3519,9 @@ dependencies = [
     { name = "turbopuffer" },
     { name = "verifiers" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a4/73/edc0a35cbdf121467448cd6ce82728fa56d294ff302c31989218a50a8562/ragent_core-0.4.1.tar.gz", hash = "sha256:cf0d95c2307d722b6d4447637706a108abbe4849969a45f69246787049b09a0c", size = 375211, upload-time = "2026-08-16T19:07:57.466Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/3c/7c/91f67ddeb544434a83b67ca2f82eadbcd026c412c15a61f272b2b5a1fa65/ragent_core-0.4.2.tar.gz", hash = "sha256:64b8eb2ce3ff267c31ca8f20a55221421e192a416fbece97862cc0789ffe2e7b", size = 378882, upload-time = "2026-08-30T14:36:32.634Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0f/53/7e938920d92ccc64635dc05cbe7534bc3f110c5c280a0dbae0fb4abd2222/ragent_core-0.4.1-py3-none-any.whl", hash = "sha256:34f15ca8466e3c7781dabc624ef558ec782afd78e08325b91b672b6214654d3c", size = 48267, upload-time = "2026-08-16T19:07:58.485Z" },
+    { url = "https://files.pythonhosted.org/packages/50/49/c18ef20cd52ec391a2caf1f4ce7cce89f4ffa6443c23fcc82b46fdd4d86d/ragent_core-0.4.2-py3-none-any.whl", hash = "sha256:732a6382e1b09e98ac25f7284a5a784df72c9ca669918bc0430c60c461199ecd", size = 49015, upload-time = "2026-08-30T14:36:31.117Z" },
 ]
 
 [[package]]
@@ -3539,7 +3539,7 @@ dependencies = [
 requires-dist = [
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "python-dotenv", specifier = ">=1.1.1" },
-    { name = "ragent-core", specifier = "==0.4.1" },
+    { name = "ragent-core", specifier = "==0.4.2" },
     { name = "verifiers", specifier = ">=0.3.0" },
 ]
 

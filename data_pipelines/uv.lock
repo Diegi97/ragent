@@ -4269,7 +4269,7 @@ wheels = [
 
 [[package]]
 name = "ragent-core"
-version = "0.4.1"
+version = "0.4.2"
 source = { editable = "../ragent_core" }
 dependencies = [
     { name = "chonkie" },
@@ -4336,7 +4336,7 @@ dependencies = [
 requires-dist = [
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "python-dotenv", specifier = ">=1.1.1" },
-    { name = "ragent-core", editable = "../ragent_core" },
+    { name = "ragent-core", specifier = "==0.4.2" },
     { name = "verifiers", specifier = ">=0.3.0" },
 ]
 
