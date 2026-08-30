@@ -140,7 +140,10 @@ uv run deep-search-tasks generate-rubrics \
 
 Pi and the `pi-phoenix` package must be installed and configured in the environment running the flow (`pi install npm:pi-phoenix`). Each agent writes a Markdown question-rubric record.
 
-The requested rubric count is distributed round-robin over the prepared entities. The retriever defaults to port `8765`;
+By default, the requested rubric count is distributed round-robin over the prepared
+entities. Pass `--random-entities --seed 42` to sample entities reproducibly
+without replacement.
+The retriever defaults to port `8765`;
 when overriding it, pass matching ports to `retriever` and `prepare`.
 
 ### Alternative: generate QA records
@@ -169,9 +172,10 @@ Prepare runs are written under `data/deep_search_task_generation/` and contain:
 
 Each rubric finalization creates an immutable `rubric_finalize_*` child directory
 with extracted `entity_facts.jsonl`, final `question_rubrics.jsonl`, failures,
-outputs, PI sessions and metadata. PI
-stores one named session per rubric attempt under `sessions/`. QA generations still
-create a separate child directory with downloaded raw files and `qas.jsonl`.
+a persistent PI `workspace/`, PI sessions and metadata. Candidate Markdown and
+difficulty-audit artifacts stay under `workspace/`; Pi stores one named session per
+rubric attempt under `sessions/`. QA generations still create a separate child
+directory with downloaded raw files and `qas.jsonl`.
 
 Upload question-rubric records to Hugging Face with train and test splits:
 

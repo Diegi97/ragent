@@ -24,6 +24,8 @@ EVALUATION_CONFIG_ENV = "RAGENT_EVALUATION_CONFIG"
 DATA_SOURCE_ENV = "RAGENT_DATA_SOURCE"
 AUDITS_DIRECTORY_ENV = "RAGENT_AUDITS_DIRECTORY"
 SOLVER_MODEL_ENV = "RAGENT_SOLVER_MODEL"
+SOLVER_EPISODE_TIMEOUT_SECONDS = 10 * 60
+SOLVER_EPISODE_MAX_RETRIES = 1
 CITATION_RE = re.compile(r"\[(?:doc|docs)\s+(\d+(?:\s*,\s*\d+)*)\]", re.I)
 
 
@@ -152,7 +154,10 @@ def _eval_config(
             "output_dir": str(output_directory),
         }
     )
-    taskset = raw.setdefault("env", {}).setdefault("taskset", {})
+    environment = raw.setdefault("env", {})
+    environment.setdefault("timeout", {})["episode"] = SOLVER_EPISODE_TIMEOUT_SECONDS
+    environment.setdefault("retries", {})["max_retries"] = SOLVER_EPISODE_MAX_RETRIES
+    taskset = environment.setdefault("taskset", {})
     taskset.update(
         {
             "dataset_path": str(dataset_path),

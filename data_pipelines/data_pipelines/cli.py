@@ -414,6 +414,20 @@ def generate_deep_search_rubrics(
             help="Maximum PI attempts for each assigned output slot.",
         ),
     ] = 4,
+    random_entities: Annotated[
+        bool,
+        typer.Option(
+            "--random-entities",
+            help="Select entities randomly without replacement.",
+        ),
+    ] = False,
+    seed: Annotated[
+        int,
+        typer.Option(
+            "--seed",
+            help="Seed used for random entity selection.",
+        ),
+    ] = 0,
 ) -> None:
     """Generate question-rubric records with PI from extracted entity facts."""
     load_dotenv()
@@ -426,6 +440,8 @@ def generate_deep_search_rubrics(
             num_question_rubrics=num_question_rubrics,
             pi_concurrency=pi_concurrency,
             max_attempts=max_attempts,
+            random_entities=random_entities,
+            seed=seed,
         )
     )
     typer.echo(json.dumps(metadata, indent=2, ensure_ascii=False))

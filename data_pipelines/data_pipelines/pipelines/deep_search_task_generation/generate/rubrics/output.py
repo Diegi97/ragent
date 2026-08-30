@@ -1,4 +1,3 @@
-import shutil
 from pathlib import Path
 
 from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.models import (
@@ -12,13 +11,14 @@ def initialize_rubric_finalize_output(
 ) -> RubricFinalizePaths:
     directory = prepare_directory / f"rubric_finalize_{utc_timestamp()}_{run_id[:8]}"
     directory.mkdir(parents=False, exist_ok=False)
-    outputs_directory = directory / "outputs"
-    outputs_directory.mkdir(exist_ok=False)
+    workspace_directory = directory / "workspace"
+    workspace_directory.mkdir(exist_ok=False)
     sessions_directory = directory / "sessions"
     sessions_directory.mkdir(exist_ok=False)
     paths = RubricFinalizePaths(
         directory=directory,
-        outputs_directory=outputs_directory,
+        workspace_directory=workspace_directory,
+        outputs_directory=workspace_directory / "outputs",
         sessions_directory=sessions_directory,
         entity_facts=directory / "entity_facts.jsonl",
         question_rubrics=directory / "question_rubrics.jsonl",
@@ -29,9 +29,3 @@ def initialize_rubric_finalize_output(
     for path in (paths.entity_facts, paths.question_rubrics, paths.failures):
         path.touch(exist_ok=False)
     return paths
-
-
-def copy_question_rubric_outputs(source: Path, destination: Path) -> None:
-    for path in source.glob("*.md"):
-        if path.is_file():
-            shutil.copy2(path, destination / path.name)

@@ -1,17 +1,16 @@
 import asyncio
 import json
 import os
+import random
+import signal
 import sys
-import tempfile
 from collections import Counter
 from functools import partial
 from pathlib import Path
 from typing import Any, Sequence
 
 import anyio
-from prefect import flow, task
-from prefect.client.orchestration import get_client
-from prefect.concurrency.asyncio import concurrency
+from prefect import flow, get_run_logger, task
 from prefect.runtime import flow_run
 
 from data_pipelines.pipelines.deep_search_task_generation.config import (
@@ -28,8 +27,10 @@ from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.model
     RubricFinalizePaths,
 )
 from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.output import (
-    copy_question_rubric_outputs,
     initialize_rubric_finalize_output,
+)
+from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.profile import (
+    build_dataset_profile,
 )
 from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.prompts import (
     QUESTION_RUBRIC_AGENT_SYSTEM_PROMPT,
@@ -64,11 +65,11 @@ from data_pipelines.tracing import (
     stage_span,
 )
 
-PI_CONCURRENCY_LIMIT = "deep-search-tasks-pi-agent"
 DEEP_SEARCH_PROJECT = REPOSITORY_ROOT / "environments/ragent_deep_search"
 EVALUATION_CONFIG = DEEP_SEARCH_PROJECT / "evaluation.toml"
 PI_CODING_AGENT_DIRECTORY_ENV = "PI_CODING_AGENT_DIR"
 PI_PHOENIX_EXTENSION = Path("npm/node_modules/pi-phoenix/index.ts")
+PI_TIMEOUT_SECONDS = 45 * 60
 
 
 def _validate_runtime_parameters(
@@ -102,13 +103,6 @@ def _validate_runtime_parameters(
     if not EVALUATION_CONFIG.is_file():
         raise FileNotFoundError(f"evaluation config not found: {EVALUATION_CONFIG}")
     return model, solver_model, thinking
-
-
-async def _upsert_pi_concurrency_limit(limit: int) -> None:
-    async with get_client() as client:
-        await client.upsert_global_concurrency_limit_by_name(
-            PI_CONCURRENCY_LIMIT, limit
-        )
 
 
 def _pi_phoenix_extension() -> Path:
@@ -155,16 +149,48 @@ def order_entity_facts(
 def build_question_rubric_assignments(
     entity_facts: Sequence[EntityFactMemoryRecord],
     num_question_rubrics: int,
+    *,
+    random_entities: bool = False,
+    seed: int = 0,
 ) -> list[QuestionRubricAssignment]:
     if num_question_rubrics < 0:
         raise ValueError("num_question_rubrics must be at least 0")
     usable = [record for record in entity_facts if record.facts]
     if not usable:
         return []
+    if random_entities:
+        if num_question_rubrics > len(usable):
+            raise ValueError(
+                "random entity selection without replacement requires at least "
+                f"{num_question_rubrics} usable entities; found {len(usable)}"
+            )
+        selected = random.Random(seed).sample(usable, k=num_question_rubrics)
+        return [
+            QuestionRubricAssignment(slot=slot, entity_fact=entity_fact)
+            for slot, entity_fact in enumerate(selected)
+        ]
     return [
         QuestionRubricAssignment(slot=slot, entity_fact=usable[slot % len(usable)])
         for slot in range(num_question_rubrics)
     ]
+
+
+async def _stop_process(process: asyncio.subprocess.Process) -> None:
+    if process.returncode is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        await process.wait()
+        return
+    try:
+        await asyncio.wait_for(process.wait(), timeout=10)
+    except TimeoutError:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        await process.wait()
 
 
 async def run_pi(
@@ -212,17 +238,19 @@ async def run_pi(
         env={**os.environ, **environment},
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.PIPE,
+        start_new_session=True,
     )
     try:
-        _, stderr = await process.communicate()
+        _, stderr = await asyncio.wait_for(
+            process.communicate(), timeout=PI_TIMEOUT_SECONDS
+        )
+    except TimeoutError as exc:
+        await _stop_process(process)
+        raise TimeoutError(
+            f"PI exceeded its {PI_TIMEOUT_SECONDS:g}-second timeout in {folder}"
+        ) from exc
     except asyncio.CancelledError:
-        if process.returncode is None:
-            process.terminate()
-            try:
-                await asyncio.wait_for(process.wait(), timeout=5)
-            except TimeoutError:
-                process.kill()
-                await process.wait()
+        await _stop_process(process)
         raise
     if process.returncode != 0:
         raise RuntimeError(
@@ -282,26 +310,25 @@ async def run_question_rubric_attempt(
                 {"llm.model_name": model},
                 project_name=phoenix_project(),
             ) as span:
-                async with concurrency(PI_CONCURRENCY_LIMIT, strict=True):
-                    await run_pi(
-                        prompt=prompt,
-                        model=model,
-                        thinking=thinking,
-                        folder=workspace.directory,
-                        session_directory=sessions_directory,
-                        session_name=(
-                            f"question-rubric-{assignment.slot}-"
-                            f"{assignment.entity_fact.entity_name}-attempt-{attempt}"
-                        ),
-                        system_instructions=QUESTION_RUBRIC_AGENT_SYSTEM_PROMPT,
-                        environment={
-                            "RAGENT_PYTHON_EXECUTABLE": sys.executable,
-                            "RAGENT_EVALUATION_CONFIG": str(EVALUATION_CONFIG),
-                            "RAGENT_DATA_SOURCE": assignment.entity_fact.data_source,
-                            "RAGENT_SOLVER_MODEL": solver_model,
-                            "RAGENT_AUDITS_DIRECTORY": str(workspace.audits_directory),
-                        },
-                    )
+                await run_pi(
+                    prompt=prompt,
+                    model=model,
+                    thinking=thinking,
+                    folder=workspace.directory,
+                    session_directory=sessions_directory,
+                    session_name=(
+                        f"question-rubric-{assignment.slot}-"
+                        f"{assignment.entity_fact.entity_name}-attempt-{attempt}"
+                    ),
+                    system_instructions=QUESTION_RUBRIC_AGENT_SYSTEM_PROMPT,
+                    environment={
+                        "RAGENT_PYTHON_EXECUTABLE": sys.executable,
+                        "RAGENT_EVALUATION_CONFIG": str(EVALUATION_CONFIG),
+                        "RAGENT_DATA_SOURCE": assignment.entity_fact.data_source,
+                        "RAGENT_SOLVER_MODEL": solver_model,
+                        "RAGENT_AUDITS_DIRECTORY": str(workspace.audits_directory),
+                    },
+                )
                 record = await anyio.to_thread.run_sync(
                     partial(
                         validate_question_rubric_file,
@@ -341,6 +368,9 @@ async def generate_question_rubrics(
     max_attempts: int,
     workspace: FactWorkspace,
     sessions_directory: Path,
+    paths: RubricFinalizePaths,
+    pi_concurrency: int,
+    logger: Any,
 ) -> tuple[
     dict[int, QuestionRubricRecord],
     dict[int, list[str]],
@@ -351,42 +381,112 @@ async def generate_question_rubrics(
     errors: dict[int, list[str]] = {item.slot: [] for item in assignments}
     trace_ids: dict[int, str] = {}
     seen_questions: set[str] = set()
+    semaphore = asyncio.Semaphore(pi_concurrency)
+
+    async def run_bounded(
+        assignment: QuestionRubricAssignment, attempt: int
+    ) -> QuestionRubricAttempt:
+        async with semaphore:
+            return await run_question_rubric_attempt(
+                assignment,
+                attempt=attempt,
+                previous_errors=errors[assignment.slot],
+                model=model,
+                solver_model=solver_model,
+                thinking=thinking,
+                workspace=workspace,
+                sessions_directory=sessions_directory,
+            )
+
     for attempt in range(1, max_attempts + 1):
         if not pending:
             break
-        outcomes = await asyncio.gather(
-            *(
-                run_question_rubric_attempt(
-                    assignment,
-                    attempt=attempt,
-                    previous_errors=errors[assignment.slot],
-                    model=model,
-                    solver_model=solver_model,
-                    thinking=thinking,
-                    workspace=workspace,
-                    sessions_directory=sessions_directory,
-                )
-                for assignment in pending
-            )
+        logger.info(
+            "Starting rubric attempt round: attempt=%s pending=%s accepted=%s",
+            attempt,
+            len(pending),
+            len(accepted),
         )
         next_pending: list[QuestionRubricAssignment] = []
-        for outcome in outcomes:
-            slot = outcome.assignment.slot
-            trace_ids[slot] = outcome.phoenix_trace_id
-            if outcome.record is None:
-                errors[slot].append(outcome.error or "PI produced no valid record.")
-                next_pending.append(outcome.assignment)
-                continue
-            question_key = " ".join(outcome.record.question.lower().split())
-            if question_key in seen_questions:
-                errors[slot].append(
-                    "Question duplicates an earlier accepted question-rubric record."
+        tasks = [
+            asyncio.create_task(run_bounded(assignment, attempt))
+            for assignment in pending
+        ]
+        try:
+            for completed in asyncio.as_completed(tasks):
+                outcome = await completed
+                slot = outcome.assignment.slot
+                entity = outcome.assignment.entity_fact.entity_name
+                trace_ids[slot] = outcome.phoenix_trace_id
+                if outcome.record is None:
+                    error = outcome.error or "PI produced no valid record."
+                    errors[slot].append(error)
+                    next_pending.append(outcome.assignment)
+                    logger.warning(
+                        "Rubric attempt failed: slot=%s attempt=%s entity=%r "
+                        "result=error accepted=%s error=%s",
+                        slot,
+                        attempt,
+                        entity,
+                        len(accepted),
+                        error,
+                    )
+                    continue
+                question_key = " ".join(outcome.record.question.lower().split())
+                if question_key in seen_questions:
+                    error = (
+                        "Question duplicates an earlier accepted question-rubric "
+                        "record."
+                    )
+                    errors[slot].append(error)
+                    next_pending.append(outcome.assignment)
+                    logger.warning(
+                        "Rubric attempt rejected: slot=%s attempt=%s entity=%r "
+                        "result=duplicate accepted=%s",
+                        slot,
+                        attempt,
+                        entity,
+                        len(accepted),
+                    )
+                    continue
+                await anyio.to_thread.run_sync(
+                    append_jsonl,
+                    paths.question_rubrics,
+                    outcome.record.model_dump(mode="json"),
+                    paths.lock,
                 )
-                next_pending.append(outcome.assignment)
-                continue
-            seen_questions.add(question_key)
-            accepted[slot] = outcome.record
+                seen_questions.add(question_key)
+                accepted[slot] = outcome.record
+                logger.info(
+                    "Rubric accepted: slot=%s attempt=%s entity=%r "
+                    "result=accepted accepted=%s",
+                    slot,
+                    attempt,
+                    entity,
+                    len(accepted),
+                )
+        finally:
+            for running_task in tasks:
+                if not running_task.done():
+                    running_task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
         pending = next_pending
+        if pending and attempt < max_attempts:
+            delay_seconds = min(2 ** (attempt - 1), 10)
+            logger.info(
+                "Waiting before next rubric attempt round: attempt=%s "
+                "pending=%s delay_seconds=%s",
+                attempt + 1,
+                len(pending),
+                delay_seconds,
+            )
+            await asyncio.sleep(delay_seconds)
+    logger.info(
+        "Rubric generation finished: requested=%s accepted=%s shortfall=%s",
+        len(assignments),
+        len(accepted),
+        len(assignments) - len(accepted),
+    )
     return accepted, errors, trace_ids
 
 
@@ -420,6 +520,7 @@ def _entity_summaries(
 def _paths_metadata(paths: RubricFinalizePaths) -> dict[str, str]:
     return {
         "rubric_finalize_run_directory": str(paths.directory),
+        "workspace_directory": str(paths.workspace_directory),
         "outputs_directory": str(paths.outputs_directory),
         "sessions_directory": str(paths.sessions_directory),
         "entity_facts": str(paths.entity_facts),
@@ -442,6 +543,8 @@ async def generate_deep_search_rubrics_flow(
     thinking: str | None = None,
     pi_concurrency: int = 10,
     max_attempts: int = 4,
+    random_entities: bool = False,
+    seed: int = 0,
 ) -> dict[str, Any]:
     model, solver_model, thinking = _validate_runtime_parameters(
         model,
@@ -462,11 +565,10 @@ async def generate_deep_search_rubrics_flow(
         )
     run_id = str(flow_run.id)
     tracing = configure_tracing(project_name=phoenix_project())
+    logger = get_run_logger()
     paths = initialize_rubric_finalize_output(prepare_run_directory, run_id)
-    stage = "configure_pi_concurrency"
+    stage = "parse_batch_output"
     try:
-        await _upsert_pi_concurrency_limit(pi_concurrency)
-        stage = "parse_batch_output"
         responses, entity_facts, diagnostics = await parse_fact_output(
             [fact_responses_path], prepare_run_directory / "fact_requests.jsonl"
         )
@@ -480,7 +582,19 @@ async def generate_deep_search_rubrics_flow(
         failures = list(diagnostics.failures)
         stage = "generate_question_rubrics"
         assignments = build_question_rubric_assignments(
-            ordered_entity_facts, num_question_rubrics
+            ordered_entity_facts,
+            num_question_rubrics,
+            random_entities=random_entities,
+            seed=seed,
+        )
+        logger.info(
+            "Rubric assignments ready: requested=%s assigned=%s "
+            "random_entities=%s seed=%s pi_concurrency=%s",
+            num_question_rubrics,
+            len(assignments),
+            random_entities,
+            seed,
+            pi_concurrency,
         )
         accepted: dict[int, QuestionRubricRecord] = {}
         errors: dict[int, list[str]] = {}
@@ -493,27 +607,21 @@ async def generate_deep_search_rubrics_flow(
                 }
             )
         else:
-            with tempfile.TemporaryDirectory(
-                prefix="entity_fact_question_rubric_"
-            ) as temporary_directory:
-                workspace = create_fact_workspace(
-                    Path(temporary_directory), ordered_entity_facts
-                )
-                try:
-                    accepted, errors, trace_ids = await generate_question_rubrics(
-                        assignments,
-                        model=model,
-                        solver_model=solver_model,
-                        thinking=thinking,
-                        max_attempts=max_attempts,
-                        workspace=workspace,
-                        sessions_directory=paths.sessions_directory,
-                    )
-                finally:
-                    copy_question_rubric_outputs(
-                        workspace.outputs_directory,
-                        paths.outputs_directory,
-                    )
+            workspace = create_fact_workspace(
+                paths.workspace_directory, ordered_entity_facts
+            )
+            accepted, errors, trace_ids = await generate_question_rubrics(
+                assignments,
+                model=model,
+                solver_model=solver_model,
+                thinking=thinking,
+                max_attempts=max_attempts,
+                workspace=workspace,
+                sessions_directory=paths.sessions_directory,
+                paths=paths,
+                pi_concurrency=pi_concurrency,
+                logger=logger,
+            )
         for assignment in assignments:
             if assignment.slot not in accepted:
                 failures.append(
@@ -554,6 +662,8 @@ async def generate_deep_search_rubrics_flow(
                     "num_question_rubrics": num_question_rubrics,
                     "pi_concurrency": pi_concurrency,
                     "max_attempts": max_attempts,
+                    "random_entities": random_entities,
+                    "seed": seed,
                 },
                 "fireworks": {
                     "input_dataset_name": prepare_metadata.get("fireworks", {}).get(
@@ -596,6 +706,8 @@ async def generate_deep_search_rubrics_flow(
             "num_question_rubrics": num_question_rubrics,
             "pi_concurrency": pi_concurrency,
             "max_attempts": max_attempts,
+            "random_entities": random_entities,
+            "seed": seed,
         },
         "fireworks": {
             "input_dataset_name": prepare_metadata.get("fireworks", {}).get(
@@ -613,6 +725,11 @@ async def generate_deep_search_rubrics_flow(
         "failure_count": count_jsonl(paths.failures),
         "parse_diagnostics": diagnostics.to_dict(),
         "entity_summaries": _entity_summaries(assignments, accepted, trace_ids),
+        "dataset_profile": build_dataset_profile(
+            assignments,
+            accepted,
+            paths.workspace_directory / ".difficulty_checks",
+        ),
         "paths": _paths_metadata(paths),
     }
     write_json(paths.metadata, metadata)
