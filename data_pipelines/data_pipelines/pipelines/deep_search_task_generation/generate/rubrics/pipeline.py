@@ -335,6 +335,7 @@ async def run_question_rubric_attempt(
                         output_path,
                         allowed_doc_ids=workspace.allowed_doc_ids,
                         expected_entity=assignment.entity_fact.entity_name,
+                        require_style=True,
                     )
                 )
                 await anyio.to_thread.run_sync(

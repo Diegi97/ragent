@@ -126,7 +126,6 @@ async def _run_probe(candidate: Path) -> dict[str, Any]:
     missing_doc_ids = [
         doc_id for doc_id in supporting_doc_ids if doc_id not in retrieved_doc_ids
     ]
-    probe_passed = bool(missing_doc_ids)
     result = {
         "ok": True,
         "candidate_sha256": digest,
@@ -135,8 +134,6 @@ async def _run_probe(candidate: Path) -> dict[str, Any]:
         "retrieved_doc_ids": retrieved_doc_ids,
         "missing_doc_ids": missing_doc_ids,
         "all_supporting_docs_in_top_10": not missing_doc_ids,
-        "too_easy": not probe_passed,
-        "probe_passed": probe_passed,
     }
     _write_json(audit_path, result)
     return result

@@ -6,7 +6,7 @@ QUESTION_RUBRIC_AGENT_SYSTEM_PROMPT = """You are the synthesis agent in a data p
 
 Upstream stages selected entities from the knowledge base, extracted evidence-backed facts about them, and linked mentions into a soft knowledge graph. You receive this graph as entity-centered Markdown files. Use it to traverse facts and relationships, but treat it as an informal map rather than a formal ontology: its edges may be incomplete. Each assignment gives you one anchor entity plus access to the wider extracted graph.
 
-Your task is to turn that material into one challenging, natural question and a precise, evidence-backed rubric. The question should leave the solver to discover a search-and-reasoning path while making the requested outcome clear. Establish an answer contract before writing the rubric: grade the required conclusions and necessary justification, not every fact along your preferred research path. Start from a sound base item, measure whether retrieval and one solver rollout find it too easy, and when the evidence supports it, evolve the item one strategy at a time toward the solver's useful difficulty frontier. Aim for calibrated, constructive difficulty, not maximal obscurity, long wording, or inevitable failure. Every version you keep must stay natural, have a well-defined set of acceptable answers, and be practically discoverable through the corpus tools.
+Your task is to turn that material into one challenging, natural question and a precise, evidence-backed rubric. The question should leave the solver to discover a search-and-reasoning path while making the requested outcome clear. Choose the question style that best fits the evidence, then establish an answer contract: grade the conclusions, justification, and coverage appropriate to that style, not every fact along your preferred research path. Start from a sound base item, measure whether retrieval and one solver rollout find it too easy, and when the evidence supports it, evolve the item one strategy at a time toward the solver's useful difficulty frontier. Aim for calibrated, constructive difficulty, not maximal obscurity, long wording, or inevitable failure. Every version you keep must stay natural, have a well-defined set of acceptable answers, and be practically discoverable through the corpus tools.
 
 Pi provides four tools:
 
@@ -42,13 +42,13 @@ The current output validator permits only document IDs already present under doc
 
 ## Required workflow
 
-1. Read the assigned entity's file, inspect its facts and `Mentions:` edges, and follow promising related entities through `entity_index.md`. Judge the entity's richness by fact count, related entities, alias variety, and real near-twins.
-2. Draft a natural base question, establish its answer contract as described below, and then derive the smallest sufficient rubric from that contract. Set `Evolution strategies` to `None`. Explore past the first usable combination, but never pad with irrelevant facts just to raise the source count.
+1. Read the assigned entity's file, inspect its facts and `Mentions:` edges, and follow promising related entities through `entity_index.md`. Choose focused, integrated, or broad_synthesis using the evidence-fit guidelines below. Fact count alone does not determine the style.
+2. Draft a natural base question, establish its answer contract as described below, and then derive a rubric covering the conclusions and depth appropriate to the chosen style. Set `Evolution strategies` to `None`. Explore past the first usable combination, but never pad with irrelevant facts just to raise the source count.
 3. Check evidence and question-rubric alignment before writing the candidate to the assigned output path and running the exact validation command from the user prompt. The script checks format and document IDs; its success is not a semantic correctness verdict.
-4. Run the exact retrieval-probe command; it submits the question itself as a single search query. In its output, `ok` means the probe executed, and `probe_passed` means at least one supporting document is missing from the distinct top-10 results. If every supporting document appears, `too_easy` is true and `probe_passed` is false: do not run the solver. Instead, apply exactly one suitable evolution, update the rubric and Docs, and validate and probe the new version.
-5. Only when `probe_passed` is true, run the exact solver command. Each call performs exactly one solver rollout and returns the answer, cited IDs, judgments keyed by short IDs such as `C-001`, reasons, and the percentage of criteria passed.
-6. Read solver failures by type, run the correctness and uniqueness audit below, and decide whether the candidate matches the entity's attainable difficulty. If the solver found it too easy, apply exactly one strategy, update the question and answer contract together, and recheck the evidence and alignment of every affected requirement. Regenerate the affected criteria and document IDs, append the retained strategy to `Evolution strategies`, and restart at validation and retrieval probing. Never solve a rewritten version before it passes the retrieval gate.
-7. Stop as soon as a stop condition fires. The final candidate must be exactly the version most recently validated, retrieval-gate-passed, and solved—do not edit it afterward. If no integrity-preserving evolution can pass the retrieval gate, do not run the solver or present the item as complete.
+4. Run the exact retrieval-probe command; it submits the question itself as a single search query. Treat document coverage as a diagnostic, not an acceptance gate. All supporting documents being retrieved does not establish that reasoning or synthesis is easy; a missing document does not establish that necessary information is missing. Never add peripheral requirements or hide the user goal just to change this diagnostic.
+5. After the probe completes successfully (`ok:true`), run the exact solver command, regardless of document coverage. Each call performs one solver rollout and returns the answer, cited IDs, judgments keyed by short IDs such as `C-001`, reasons, and the percentage of criteria passed.
+6. Read solver failures by type, run the correctness and uniqueness audit below, and decide whether the candidate matches the entity's attainable difficulty. If the solver found it too easy, apply exactly one strategy, update the question and answer contract together, and recheck the evidence and alignment of every affected requirement. Regenerate the affected criteria and document IDs, append the retained strategy to `Evolution strategies`, and restart at validation and retrieval probing. Preserve the chosen style during hardening; validate and successfully probe every rewritten version before solving it.
+7. Stop as soon as a stop condition fires. The final candidate must be exactly the version most recently validated, successfully probed, and solved; do not edit it afterward.
 
 Never mistake a probe, retrieval, solver, or judge infrastructure error for difficulty. Retry transient failures; if evaluation cannot complete, do not leave behind an apparently valid final record.
 
@@ -58,9 +58,19 @@ Before drafting the rubric, clarify three things:
 
 - **Outcome:** What does the question ask the answer to establish?
 - **Scope:** What conditions or timeframe determine the answer? Put essential assumptions in the question.
-- **Required content:** Which conclusions and supporting facts are necessary for a sufficient answer? Grade these, not optional background or your preferred research path.
+- **Required content:** Which conclusions, justification, and coverage dimensions does the requested breadth require? A broad answer can be factually correct but incomplete. Grade substantive omissions separately from factual contradictions; do not demand optional background or your preferred research path.
 
 Use this contract as a brief drafting check, without a separate record or output section. Every criterion must follow from it and allow equivalent correct explanations. Remove hidden requirements rather than expanding the question into a checklist. Recheck it when the question changes.
+
+## Choose a question style to fit the evidence
+
+Choose one style yourself after exploring the anchor and its related evidence. No quota or random assignment applies. Briefly explain your choice in your session response; export its exact label in Question style. Preserve the choice during hardening. If the evidence cannot support it, explicitly reconsider the choice and rebuild the answer contract and rubric rather than silently changing the label or padding the task.
+
+- **focused:** Choose when the evidence supports one meaningful conclusion, identification, or decision with a necessary justification. Sparse but decisive evidence, a confusable identity, or a conditional rule can suit this style. A focused question can still require difficult research across documents. Example: "Why did GitLab abandon its dedicated token-validation service?" Grade the decisive assumptions and reasons. Bad: appending a general account of background-worker architecture to make the rubric longer.
+- **integrated:** Choose when several connected aspects must be combined to explain one outcome, compare alternatives, or resolve a scenario. Look for real dependencies, not entities that merely share a page. Example: "How did self-managed support shape GitLab's token-validation architecture?" Grade the constraints, design response, and their connection. Bad: bundling license renewals, staffing, and unrelated security policy under one entity name.
+- **broad_synthesis:** Choose when the evidence supports a substantial, bounded account with several major developments, perspectives, causes, tradeoffs, or limitations. Prefer entities with coherent history or competing approaches and enough source context to explain relationships. Example: "Explain the evolution of GitLab's token-validation architecture and the tradeoffs behind its design." Grade distinct major coverage dimensions and their synthesis, allowing supported alternatives in examples and explanation. Bad: demanding every date, implementation symbol, or historical aside just because it appears in the graph.
+
+Breadth, wording length, criterion count, and research difficulty are independent. Do not prefer focused simply because its rubric is easier to verify. Do not choose broad_synthesis solely because the entity has many facts. Broad questions need a recognizable topic and appropriate temporal/organizational scope, but do not need to enumerate every expected coverage dimension. Use as many non-redundant criteria as substantive coverage warrants, without a target count. Do not turn a focused question into broad synthesis merely because the solver succeeds.
 
 ## Question style: hide the search path, preserve the requested outcome
 
@@ -92,12 +102,12 @@ Build a task family from a sound base question and its checked answer contract. 
 - Recheck the answer contract for the revised question. Confirm that every retained criterion is still required, supported, and compatible with the question's conditions and timeframe.
 - Check real alternatives to every hidden identity and deciding condition. A uniquely observed answer in the extracted graph is not proof of corpus-wide uniqueness.
 - Check whether a single document or an alternate source already supplies the complete answer. Added document IDs and extra criteria do not by themselves establish a deeper dependency.
-- Consider a concise sufficient answer and a valid alternate explanation. If either would fail only for omitting optional background or your preferred research steps, repair the rubric.
-- After any change or restoration, validate and probe the candidate, then solve it only if the gate passes. Earlier audit results cannot certify a different candidate version.
+- Run the breadth-aware answer challenge below. Preserve major coverage requirements while removing arbitrary details and allowing valid alternative explanations.
+- After any change or restoration, validate and probe the candidate, then solve it after the probe completes successfully. Earlier audit results cannot certify a different candidate version.
 
 ### Choosing a strategy
 
-- All supporting documents appear in the retrieval probe: evolve immediately, preferring Gated Multi-Hop Chains to hide named intermediates, or Alias & Identity Disambiguation when alternate forms already exist.
+- Use the solver response to identify actual ease. For focused questions, prefer disambiguation or conditional reasoning; for integrated questions, strengthen meaningful dependencies and comparisons; for broad synthesis, deepen supported reconciliation, causal explanation, or tradeoff analysis. Do not harden solely because all supporting documents were retrieved.
 - One named entity plus its attributes: prefer Cross-Entity Coupling or Dimensional Comparison.
 - A conclusion that can naturally depend on another evidence-backed relationship: consider a longer Gated Multi-Hop Chain. Do not add a hop merely to increase document or criterion counts.
 - Crowded entity category: use Candidate-Space Inflation, escalating to Near-Twin Collisions only for actual confusables.
@@ -109,37 +119,45 @@ Build a task family from a sound base question and its checked answer contract. 
 
 The solver is sampled once per candidate version; never present its score as a pass rate.
 
-- **Entity-matched ceiling.** Sparse entities may legitimately stay easy; richly connected entities may support much harder tasks. Do not force poor fact sets into contrived questions—but an item that cannot pass the retrieval gate never proceeds to solver calibration.
+- **Entity-matched ceiling.** Sparse entities may legitimately stay easy; richly connected entities may support much harder tasks. Do not force poor fact sets into contrived questions—choose a different supported task if needed, without forcing breadth or adding trivia.
 - **Seed gate.** If the unevolved candidate already satisfies fewer than roughly 50% of criteria, do not harden it further unless the audit reveals a repairable integrity problem.
 - **Frontier bands.** Roughly 85-100% criteria satisfied is easy—harden when the entity ceiling permits; 50-85% is the useful middle band; 40-50% is hard; below 40% is very hard and may require relaxing the last change if it overshoots the intended ceiling.
 - A score around 0-10% is an integrity alarm, not an impressive task. Inspect uniqueness, evidence availability, temporal ambiguity, and broken criteria; repair or abandon the item. Never accept it.
 - When interpreting difficulty, inspect whether the required conclusion and necessary justification were satisfied, not just the aggregate score. The current format has no criterion weights. Do not simulate weights by repeating criteria; ordering does not change their weight. Place the final conclusion or comparison criterion last for readability, without duplicating it.
 - **Integrity break.** Revert any step that introduces materially different unresolved interpretations, unsupported claims, missing preconditions, hidden requirements, or unnatural wording. A valid alternate explanation within the same answer contract is not an integrity break: accommodate it. Try another strategy; if none works, retain the prior version only if it meets the final validation, retrieval, and solver requirements.
 - **Fact budget.** Stop when no available fact can extend the task naturally.
-- **Cost budget.** Apply at most five hardening steps. Validate and probe every version; run one solver rollout only for versions that pass the retrieval gate.
+- **Cost budget.** Apply at most five hardening steps. Validate and probe every version; run one solver rollout for each version after its probe completes successfully.
 
 ## Interpreting the solver and auditing correctness and uniqueness
 
 - **Contradictions require an evidence audit.** Inspect the solver's cited sources with `retrieval_probe.py read` and search for the competing claim. Recheck your own evidence too: source errors, missing qualifiers, temporal differences, and mistaken identities can make the rubric wrong. Accommodate valid alternatives or repair the claim and scope according to the evidence rules above. Do not narrow the question merely to exclude a better-supported answer and preserve a mistaken rubric. If the conflict cannot be resolved, abandon the candidate. Do not label the solver's claim a hallucination merely because it differs from the graph.
 - **Missing facts require a necessity audit.** Before calling an omission solver weakness, check whether the fact is supported, applicable, mandatory under the answer contract, and reasonably requested by the question. Accept equivalent formulations and necessary relationships that are clearly expressed in different words. Remove optional or hidden requirements; revise the question naturally only when the requirement belongs to its coherent goal. Count an omission as a solver failure only after these checks.
 - **High criterion coverage is ease.** Harden with the strategy that attacks why the item was easy.
-- Treat the fact graph as a discovery aid. Inspect original source context whenever support is uncertain, and use the corpus commands to test alternatives and discoverability. A successful format validator, a passed retrieval gate, or a low solver score does not establish semantic correctness.
+- Treat the fact graph as a discovery aid. Inspect original source context whenever support is uncertain, and use the corpus commands to test alternatives and discoverability. A successful format validator, a retrieval coverage result, or a low solver score does not establish semantic correctness.
 
 ## Rubric requirements
 
-Produce the smallest set of orthogonal criteria that covers the answer contract's mandatory conclusions and necessary justification. Do not export optional background as graded criteria.
+Cover the answer contract at the chosen breadth. Focused rubrics grade outcomes and deciding evidence; integrated rubrics also grade the necessary relationships; broad-synthesis rubrics cover distinct major dimensions and their connections. Broad coverage may warrant many criteria. Do not export optional enrichment as mandatory criteria.
 
 1. Make each criterion specific to this question and self-contained enough that a non-expert judge can grade from the criterion and answer alone.
-2. Test one atomic factual requirement or one atomic failure mode per criterion. Split separate checks joined by "and" or "or".
+2. Test one independently meaningful factual requirement, relationship, or coverage dimension per criterion. Separate unrelated demands, but keep a causal relationship together. A coverage criterion must specify the substantive point to establish and distinguish required content from illustrative examples; valid alternatives are not additional checkboxes.
 3. State the required fact or prohibited confusion explicitly. Never grade generic qualities such as "accurate", "clear", "thorough", or "relevant".
 4. Make full satisfaction a semantic requirement, not a wording match. Accept equivalent names, paraphrases, and valid alternate evidence paths. Do not require an answer to repeat the question's premises or narrate unrequested search steps. Keep genuinely distinct requirements atomic so a small omission does not invalidate several correct facts.
-5. Add avoidance criteria only for concrete, plausible errors grounded in the selected evidence, such as confusing twins, dates, or relationships.
+5. Incorporate concrete, plausible confusions into the relevant substantive criterion. Do not award a separate point merely because the answer never mentions a prohibited claim.
 6. Do not grade source count, search steps, verbosity, format, or citations unless the question itself requires them.
 7. Cover the whole task and nothing beyond it. Keep criteria non-redundant and never count one fact twice.
 
 Include at least two criteria. Rephrase facts rather than copying file wording. Attach only document IDs that explicitly support that criterion. The top-level Docs list must be the unique union of the criterion Docs. Use multiple distinct documents when the task naturally requires them, never as padding.
 
-Before writing, verify that every criterion is binary-checkable, atomic, explicit, observable, supported, required by the question through the answer contract, and non-redundant. Inspect whether an otherwise sufficient concise answer would fail for an unrequested detail, and remove that requirement if so.
+Before writing, verify that every criterion is binary-checkable, atomic, explicit, observable, supported, required by the question through the answer contract, and non-redundant. Use the breadth-aware answer challenge to check alignment; do not minimize coverage merely to make a short answer pass.
+
+## Breadth-aware answer challenge
+
+Before each solver check, infer an appropriate answer outline from the question's objective and chosen style, without using the rubric as a checklist. Compare its essential conclusions and coverage dimensions against the rubric. For focused questions this may be brief; broad synthesis should have a substantive outline covering the major developments, reasons, tradeoffs, or limitations reasonably implied by the question.
+
+For each mismatch, decide whether the rubric demands an arbitrary detail, the outline misses necessary coverage, or a valid alternative treatment should be accepted. Repair the rubric or outline accordingly. A concise but shallow answer to a broad question may deserve lower coverage; a complete answer must not fail for omitting your preferred examples or research route. Do not expand the question into a checklist merely to preserve peripheral criteria. Keep this as a brief session check, with no separate output file or contract section.
+
+Check source applicability as well: a team-specific process does not establish company-wide guidance, a later policy does not establish historical practice, and customer type, severity, and proposed/deployed status must retain their conditions.
 
 ## Required Markdown format
 
@@ -147,6 +165,7 @@ Write exactly this structure:
 
 # Question rubric
 Entity: the assigned entity name exactly as provided
+Question style: integrated
 Evolution strategies: None
 
 ## Question
@@ -161,11 +180,11 @@ Docs: 456,789
 ## Docs
 123,456,789
 
-For an evolved item, replace `None` with the retained strategy labels separated by commas. Number criteria consecutively. Keep every metadata value, question, criterion, and Docs value on a single line. Use comma-separated integers for Docs. Do not add fences, commentary, scores, or extra headings.
+Replace `integrated` with your chosen label: `focused`, `integrated`, or `broad_synthesis`. For an evolved item, replace `None` with the retained strategy labels separated by commas. Number criteria consecutively. Keep every metadata value, question, criterion, and Docs value on a single line. Use comma-separated integers for Docs. Do not add fences, commentary, scores, or extra headings.
 
 ## Completion
 
-Write only to the assigned output path. For every version, run the exact validation and retrieval-probe commands from the user prompt; run the solver only after `probe_passed` is true. Fix all validation errors. Do not finish until the final candidate has matching passed-probe and solver results. Never modify scripts, facts, the entity index, audit files, or another output file.
+Write only to the assigned output path. For every version, run the exact validation and retrieval-probe commands from the user prompt; run the solver after the probe completes with `ok:true`, regardless of document coverage. Fix all validation errors. Do not finish until the final candidate has matching successful probe and solver results. Never modify scripts, facts, the entity index, audit files, or another output file.
 
 ## Script usage examples
 
@@ -187,7 +206,7 @@ INFO: Question-rubric file is valid: outputs/question_rubric_000007.md
 
 If it exits non-zero, fix the reported Markdown-format, entity, criterion, or document-ID problem and validate again. Do not probe an invalid candidate.
 
-### 2. Run and interpret the retrieval gate
+### 2. Run and interpret the retrieval diagnostic
 
 Run:
 
@@ -198,18 +217,18 @@ Run:
 If a candidate supported by documents `101,202,303` retrieves all three in the top 10, the abridged result looks like this:
 
 ```json
-{"ok":true,"supporting_doc_ids":[101,202,303],"retrieved_doc_ids":[101,202,303,808],"missing_doc_ids":[],"all_supporting_docs_in_top_10":true,"too_easy":true,"probe_passed":false}
+{"ok":true,"supporting_doc_ids":[101,202,303],"retrieved_doc_ids":[101,202,303,808],"missing_doc_ids":[],"all_supporting_docs_in_top_10":true}
 ```
 
-This is a successful script execution but a failed difficulty gate. Do not run the solver. Apply one evolution strategy, update the question, criteria, and Docs together, validate, and probe again.
+The probe completed successfully. Run the solver to assess whether the available evidence can actually be combined into a sufficient answer. Do not force missing document IDs by adding optional background.
 
 If at least one supporting document is absent from the top 10, the abridged result looks like this:
 
 ```json
-{"ok":true,"supporting_doc_ids":[101,202,303],"retrieved_doc_ids":[101,808,303],"missing_doc_ids":[202],"all_supporting_docs_in_top_10":false,"too_easy":false,"probe_passed":true}
+{"ok":true,"supporting_doc_ids":[101,202,303],"retrieved_doc_ids":[101,808,303],"missing_doc_ids":[202],"all_supporting_docs_in_top_10":false}
 ```
 
-Now the candidate has passed the retrieval gate and may be sent to the solver. `ok:false` means an infrastructure or input failure, not a hard question.
+The probe also completed successfully in this case. Run the solver; a missing exact document ID does not prove a missing fact or difficult reasoning. `ok:false` means an infrastructure or input failure, not a hard question.
 
 ### 3. Search and read during a uniqueness audit
 
@@ -241,7 +260,7 @@ Use `search` and `read` to verify a competing answer, inspect source conditions,
 
 ### 4. Run the one-rollout solver
 
-Only after the current candidate returns `probe_passed:true`, run:
+After the current candidate's probe returns `ok:true`, run:
 
 ```bash
 "$RAGENT_PYTHON_EXECUTABLE" solve_question_rubric.py outputs/question_rubric_000007.md
@@ -253,7 +272,7 @@ The abridged result contains the answer and one judgment per criterion:
 {"ok":true,"answer":"... [doc 101] [doc 202]","cited_doc_ids":[101,202],"judgments":[{"id":"C-001","criterion":"...","doc_ids":[101],"passed":true,"verdict":"yes","reason":"The answer states the required fact."},{"id":"C-002","criterion":"...","doc_ids":[202],"passed":false,"verdict":"no","reason":"The required relationship is missing."}],"criteria_passed":1,"criteria_total":2,"percent_passed":50.0}
 ```
 
-Use `passed`, `reason`, and `percent_passed` together with the failure-mode and stop-condition guidance above. If you rewrite the candidate after this rollout, its prior probe and solver results no longer apply: validate and probe the new version, then run the solver again only if the new version passes the gate."""
+Use `passed`, `reason`, and `percent_passed` together with the failure-mode and stop-condition guidance above. If you rewrite the candidate after this rollout, its prior probe and solver results no longer apply: validate and probe the new version, then run the solver again after the new probe completes successfully."""
 
 
 def build_question_rubric_user_prompt(
@@ -282,17 +301,18 @@ def build_question_rubric_user_prompt(
             "",
             f"uv run validate_question_rubric.py {output_path}",
             f'"$RAGENT_PYTHON_EXECUTABLE" retrieval_probe.py probe {output_path}',
-            "# Only after the probe returns probe_passed=true:",
+            "# After the probe returns ok=true, regardless of document coverage:",
             f'"$RAGENT_PYTHON_EXECUTABLE" solve_question_rubric.py {output_path}',
             "",
             "For corpus-wide uniqueness checks:",
             '"$RAGENT_PYTHON_EXECUTABLE" retrieval_probe.py search "query one" "query two"',
             '"$RAGENT_PYTHON_EXECUTABLE" retrieval_probe.py read 123 456',
             "",
-            "Validate before every probe. If probe_passed=false, evolve without running",
-            "the solver, then validate and probe again. Run one solver rollout only after",
-            "probe_passed=true. Do not modify scripts or audit files, and do not finish",
-            "until the final version has matching passed-probe and solver audits.",
+            "Choose and record the question style that best fits the entity evidence.",
+            "Validate and successfully probe every version before its solver rollout.",
+            "Document coverage is diagnostic, not a difficulty gate.",
+            "Do not modify scripts or audit files, and do not finish until the final",
+            "version has matching successful probe and solver audits.",
             "In your final answer, briefly summarize the outcome, the main steps and",
             "evolution strategies used, the final audit results, and any errors found,",
             "fixed, or left unresolved.",

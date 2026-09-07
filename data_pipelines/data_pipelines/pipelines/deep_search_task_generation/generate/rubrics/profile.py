@@ -13,6 +13,7 @@ from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.model
 )
 from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.validation import (
     EVOLUTION_STRATEGIES,
+    QUESTION_STYLES,
 )
 
 DIFFICULTY_BANDS = ("easy", "middle", "hard", "very_hard", "unknown")
@@ -89,6 +90,12 @@ def build_dataset_profile(
     records = [(slot, accepted[slot]) for slot in sorted(accepted)]
     item_count = len(records)
 
+    styles = (*QUESTION_STYLES, "unknown")
+    style_records = {
+        style: [record for _, record in records if record.question_style == style]
+        for style in styles
+    }
+    style_scores: dict[str, list[float]] = {style: [] for style in styles}
     strategy_counts: Counter[str] = Counter()
     unknown_strategy_counts: Counter[str] = Counter()
     items_without_evolution = 0
@@ -154,6 +161,7 @@ def build_dataset_profile(
         ):
             numeric_percent = float(percent_passed)
             percent_passed_values.append(numeric_percent)
+            style_scores[record.question_style].append(numeric_percent)
             difficulty_counts[_difficulty_band(numeric_percent)] += 1
         else:
             difficulty_counts["unknown"] += 1
@@ -222,6 +230,33 @@ def build_dataset_profile(
 
     return {
         "accepted_item_count": item_count,
+        "question_styles": {
+            "selection": "model_chosen",
+            "unaccepted_assignment_count": len(set(assignment_by_slot) - set(accepted)),
+            "by_style": {
+                style: {
+                    "item_count": len(style_records[style]),
+                    "scored_item_count": len(style_scores[style]),
+                    "full_credit_count": sum(
+                        score == 100 for score in style_scores[style]
+                    ),
+                    "percent_passed": _numeric_summary(style_scores[style]),
+                    "criteria_per_item": _numeric_summary(
+                        [len(record.rubric) for record in style_records[style]]
+                    ),
+                    "question_words": _numeric_summary(
+                        [
+                            len(record.question.split())
+                            for record in style_records[style]
+                        ]
+                    ),
+                    "documents_per_item": _numeric_summary(
+                        [len(record.doc_ids) for record in style_records[style]]
+                    ),
+                }
+                for style in styles
+            },
+        },
         "evolution_strategies": {
             "distribution": dict(strategy_counts.most_common()),
             "unrecognized_distribution": dict(unknown_strategy_counts.most_common()),

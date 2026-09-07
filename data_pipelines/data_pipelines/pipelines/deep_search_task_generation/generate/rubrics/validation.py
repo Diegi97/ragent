@@ -11,7 +11,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -38,6 +38,8 @@ EVOLUTION_STRATEGIES = (
     "Absence Verification",
 )
 NO_EVOLUTION_STRATEGIES = "None"
+QUESTION_STYLES = ("focused", "integrated", "broad_synthesis")
+QuestionStyle = Literal["focused", "integrated", "broad_synthesis", "unknown"]
 
 
 class RubricCriterion(BaseModel):
@@ -66,6 +68,7 @@ class QuestionRubricRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     entity: str = Field(min_length=1)
+    question_style: QuestionStyle = "unknown"
     evolution_strategies: list[str] = Field(default_factory=list)
     question: str = Field(min_length=1)
     rubric: list[RubricCriterion] = Field(min_length=1)
@@ -171,6 +174,9 @@ def parse_question_rubric_markdown(path: Path) -> dict[str, Any]:
         raise ValueError("first line must be '# Question rubric'")
 
     entity = _required_prefixed_value(lines[1], "Entity:")
+    question_style = "unknown"
+    if lines[2].startswith("Question style:"):
+        question_style = _required_prefixed_value(lines.pop(2), "Question style:")
     evolution_strategies = _parse_evolution_strategies(
         _required_prefixed_value(lines[2], "Evolution strategies:")
     )
@@ -214,6 +220,7 @@ def parse_question_rubric_markdown(path: Path) -> dict[str, Any]:
         raise ValueError("'## Docs' must contain exactly one comma-separated line")
     return {
         "entity": entity,
+        "question_style": question_style,
         "evolution_strategies": evolution_strategies,
         "question": question,
         "rubric": rubric,
@@ -229,6 +236,7 @@ def validate_question_rubric_file(
     *,
     allowed_doc_ids: set[int] | frozenset[int] | None = None,
     expected_entity: str | None = None,
+    require_style: bool = False,
 ) -> QuestionRubricRecord:
     path = path.expanduser().resolve()
     if not path.is_file():
@@ -236,6 +244,10 @@ def validate_question_rubric_file(
     record = QuestionRubricRecord.model_validate(
         parse_question_rubric_markdown(path), strict=True
     )
+    if require_style and record.question_style == "unknown":
+        raise ValueError(
+            "new candidates must specify Question style: focused, integrated, or broad_synthesis"
+        )
     if expected_entity is not None and record.entity != expected_entity:
         raise ValueError(
             f"entity must be {expected_entity!r}, received {record.entity!r}"
@@ -296,10 +308,6 @@ def validate_question_rubric_audits(
         raise ValueError(
             "retrieval probe supporting_doc_ids do not match final candidate Docs"
         )
-    if retrieval.get("probe_passed") is not True:
-        raise ValueError(
-            "final candidate did not pass the retrieval gate; evolve it before solving"
-        )
     if solver.get("criteria_total") != len(record.rubric):
         raise ValueError("solver audit criterion count does not match final rubric")
     percent_passed = solver.get("percent_passed")
@@ -319,7 +327,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         allowed_doc_ids = _load_workspace_doc_ids(Path.cwd() / "facts")
-        validate_question_rubric_file(args.path, allowed_doc_ids=allowed_doc_ids)
+        validate_question_rubric_file(
+            args.path, allowed_doc_ids=allowed_doc_ids, require_style=True
+        )
     except (OSError, ValueError, ValidationError) as exc:
         logger.error("Invalid question-rubric file: %s", exc)
         return 1
