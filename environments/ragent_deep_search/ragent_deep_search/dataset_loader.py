@@ -5,9 +5,12 @@ from typing import Any
 
 from datasets import Dataset, load_dataset
 
+from ragent_core.artifacts.question_rubric import (
+    QuestionRubricDatasetMetadata,
+    QuestionRubricDatasetRecord,
+)
 from ragent_core.config import HF_TOKEN
 
-DEFAULT_DATASET_ID = "diegi97/ragent-rubrics"
 METADATA_FILENAME = "metadata.json"
 
 
@@ -34,19 +37,11 @@ def _load_local_data_source(dataset_path: Path) -> str:
         raise ValueError(
             f"Invalid JSON in local task metadata {metadata_path}: {exc.msg}"
         ) from exc
-    if not isinstance(metadata, dict):
-        raise ValueError(f"Local task metadata must be an object: {metadata_path}")
-
-    prepare_config = metadata.get("prepare_config")
-    data_source = (
-        prepare_config.get("data_source") if isinstance(prepare_config, dict) else None
-    )
-    if not isinstance(data_source, str) or not data_source.strip():
-        raise ValueError(
-            "Local task metadata is missing a nonblank "
-            f"prepare_config.data_source: {metadata_path}"
-        )
-    return data_source.strip()
+    try:
+        contract = QuestionRubricDatasetMetadata.model_validate(metadata)
+    except ValueError as exc:
+        raise ValueError(f"Invalid local task metadata {metadata_path}: {exc}") from exc
+    return contract.prepare_config.data_source
 
 
 def _iter_local_rows(dataset_path: Path) -> Iterator[tuple[int, dict[str, Any]]]:
@@ -93,7 +88,16 @@ def iter_dataset_rows(
 ) -> Iterator[tuple[int, dict[str, Any]]]:
     """Read one split from a Hugging Face dataset or a local JSONL file"""
     local_path = _local_jsonl_path(dataset_path)
-    if local_path is not None:
-        yield from _iter_local_rows(local_path)
-        return
-    yield from _iter_hub_rows(str(dataset_path), split)
+    rows = (
+        _iter_local_rows(local_path)
+        if local_path is not None
+        else _iter_hub_rows(str(dataset_path), split)
+    )
+    for index, row in rows:
+        try:
+            record = QuestionRubricDatasetRecord.model_validate(row)
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid rubric record {index} in {dataset_path}: {exc}"
+            ) from exc
+        yield index, record.model_dump(mode="json")

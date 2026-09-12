@@ -1,9 +1,12 @@
 from pathlib import Path
 
+from data_pipelines.pipelines.deep_search_task_generation.facts import (
+    ENTITY_FACTS_FILENAME,
+)
 from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.models import (
     RubricFinalizePaths,
 )
-from data_pipelines.pipelines.deep_search_task_generation.project import utc_timestamp
+from data_pipelines.timestamps import utc_timestamp
 
 
 def initialize_rubric_finalize_output(
@@ -20,7 +23,7 @@ def initialize_rubric_finalize_output(
         workspace_directory=workspace_directory,
         outputs_directory=workspace_directory / "outputs",
         sessions_directory=sessions_directory,
-        entity_facts=directory / "entity_facts.jsonl",
+        entity_facts=directory / ENTITY_FACTS_FILENAME,
         question_rubrics=directory / "question_rubrics.jsonl",
         failures=directory / "failures.jsonl",
         metadata=directory / "metadata.json",

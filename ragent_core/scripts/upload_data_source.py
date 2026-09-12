@@ -17,15 +17,14 @@ from datasets.exceptions import DatasetNotFoundError
 
 from ragent_core.config import HF_TOKEN
 from ragent_core.data_sources import (
+    DataSourceSpec,
     get_data_source_loader,
-    normalize_data_source_result,
     safe_ds_name,
 )
+from ragent_core.data_sources.records import CORE_COLUMNS, DATA_SOURCES_DATASET_ID
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_HF_REPO_ID = "diegi97/ragent_data_sources"
-REQUIRED_COLUMNS = frozenset({"id", "title", "text"})
 SPLIT_NAME_RE = re.compile(r"^\w+(?:\.\w+)*$")
 
 
@@ -43,7 +42,7 @@ def _parse_args() -> argparse.Namespace:
             "'nampdn-ai/devdocs.io'."
         ),
     )
-    parser.add_argument("--repo-id", default=DEFAULT_HF_REPO_ID)
+    parser.add_argument("--repo-id", default=DATA_SOURCES_DATASET_ID)
     parser.add_argument(
         "--split",
         default=None,
@@ -71,7 +70,7 @@ def load_data_source(data_source: str) -> tuple[Dataset, str, str | None]:
     """Load one source and resolve the default split name."""
     logger.info("Loading data source: %s", data_source)
     loader = get_data_source_loader(data_source)
-    spec = normalize_data_source_result(loader())
+    spec = DataSourceSpec.from_loader_result(loader())
     split_name = spec.name or safe_ds_name(data_source)
     return spec.dataset, split_name, spec.description
 
@@ -84,12 +83,12 @@ def validate_dataset(dataset: Dataset, split_name: str) -> None:
             "underscores, or dot-separated components"
         )
 
-    missing_columns = REQUIRED_COLUMNS.difference(dataset.column_names)
+    missing_columns = CORE_COLUMNS.difference(dataset.column_names)
     if missing_columns:
         missing = ", ".join(sorted(missing_columns))
         raise ValueError(f"Data source is missing required columns: {missing}")
 
-    extra_columns = set(dataset.column_names).difference(REQUIRED_COLUMNS)
+    extra_columns = set(dataset.column_names).difference(CORE_COLUMNS)
     if extra_columns:
         logger.warning(
             "Split '%s' contains additional columns: %s",

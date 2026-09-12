@@ -18,15 +18,16 @@ dependencies = [
     "prefect>=3.4.19,<4",
     "pydantic>=2.11.0",
     "python-dotenv>=1.1.0",
+    "rapidfuzz>=3.14.0",
     "ragent-core",
     "ragent-deep-search",
     "typer>=0.16.0",
 ]
 
 [project.scripts]
-generate-search-queries = "data_pipelines.cli:app"
-deep-search-tasks = "data_pipelines.cli:deep_search_tasks_app"
-evaluate-retrieval = "data_pipelines.cli:evaluation_app"
+generate-search-queries = "data_pipelines.pipelines.search_query_generation.cli:app"
+deep-search-tasks = "data_pipelines.pipelines.deep_search_task_generation.cli:app"
+evaluate-retrieval = "data_pipelines.pipelines.retrieval_evaluation.cli:app"
 
 [dependency-groups]
 dev = [

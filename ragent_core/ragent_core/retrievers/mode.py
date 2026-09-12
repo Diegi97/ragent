@@ -8,3 +8,11 @@ class RetrievalMode(str, Enum):
     DENSE = "dense"
     HYBRID = "hybrid"
     HYBRID_RERANKED = "hybrid_reranked"
+
+    @property
+    def needs_embeddings(self) -> bool:
+        return self is not self.BM25
+
+    @property
+    def needs_reranker(self) -> bool:
+        return self is self.HYBRID_RERANKED

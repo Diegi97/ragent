@@ -3,6 +3,7 @@ import logging
 from datasets import load_dataset
 
 from ragent_core.data_sources import DataSourceSpec, filter_by_word_count
+from ragent_core.data_sources.records import source_record
 
 logger = logging.getLogger(__name__)
 
@@ -33,15 +34,7 @@ def load_data_source() -> DataSourceSpec:
     def _formatter(example, index):
         text = example.get("text") or ""
         title, body = _split_title_body(text)
-        if title and body:
-            merged_text = f"# {title}\n\n{body}"
-        else:
-            merged_text = title or body
-        return {
-            "id": index,
-            "title": title,
-            "text": merged_text,
-        }
+        return source_record(index, title, body)
 
     dataset = dataset.map(_formatter, with_indices=True)
     dataset = filter_by_word_count(dataset)

@@ -3,18 +3,13 @@ import unittest
 import numpy as np
 import torch
 
-from model_services.harrier_service import (
-    MAX_BATCH_SIZE,
-    MAX_LATENCY_MS,
-    QUERY_PROMPT_NAME,
-    HarrierEmbeddingService,
-    HarrierEncoder,
-)
-from model_services.mxbai_reranker_service import (
-    INFERENCE_BATCH_SIZE,
-    MxbaiRanker,
-    MxbaiRerankerService,
-)
+from model_services.harrier_service import HarrierEmbeddingService
+from model_services.harrier_service.config import MAX_BATCH_SIZE, MAX_LATENCY_MS
+from model_services.harrier_service.model import HarrierEncoder
+from model_services.model_contract import QUERY_PROMPT_NAME, RankResult
+from model_services.mxbai_reranker_service import MxbaiRerankerService
+from model_services.mxbai_reranker_service.config import INFERENCE_BATCH_SIZE
+from model_services.mxbai_reranker_service.model import MxbaiRanker
 
 
 class FakeEmbeddingModel:
@@ -78,8 +73,8 @@ class MxbaiServiceTest(unittest.TestCase):
         self.assertEqual(
             results,
             [
-                {"corpus_id": 0, "score": 2.0},
-                {"corpus_id": 1, "score": 1.0},
+                RankResult(corpus_id=0, score=2.0),
+                RankResult(corpus_id=1, score=1.0),
             ],
         )
         kwargs = model.calls[0][2]

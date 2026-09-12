@@ -1,20 +1,21 @@
-import json
-import os
-import re
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from filelock import FileLock
-
+from data_pipelines.artifacts.append import append_jsonl
+from data_pipelines.artifacts.inputs import count_jsonl
+from data_pipelines.artifacts.io import write_json
+from data_pipelines.artifacts.paths import output_slug
 from data_pipelines.pipelines.search_query_generation.config import (
     RetrievalQueriesConfig,
 )
+from data_pipelines.pipelines.search_query_generation.metadata import QueryRunMetadata
 from data_pipelines.pipelines.search_query_generation.models import (
     ObjectRunSummary,
     OutputPaths,
     RetrievalQuery,
 )
+from data_pipelines.timestamps import utc_timestamp
 
 
 def run_output_directory(
@@ -22,13 +23,8 @@ def run_output_directory(
     run_id: str,
     created_at: datetime | None = None,
 ) -> Path:
-    table_slug = re.sub(r"[^A-Za-z0-9._-]+", "-", config.table_name).strip("-._")
-    table_slug = (table_slug or "table")[:80]
-    timestamp = (
-        (created_at or datetime.now(timezone.utc))
-        .astimezone(timezone.utc)
-        .strftime("%Y%m%dT%H%M%SZ")
-    )
+    table_slug = output_slug(config.table_name, fallback="table")
+    timestamp = utc_timestamp(created_at=created_at)
     return config.output_path.parent / (
         f"{table_slug}_{timestamp}_{config.num_queries}q_{run_id[:8]}"
     )
@@ -66,23 +62,8 @@ def append_query_record(
         if retrieval_query.is_trainable()
         else retrieval_query.to_failure_record()
     )
-    encoded = (json.dumps(record, ensure_ascii=False) + "\n").encode("utf-8")
-    with FileLock(paths.lock_path):
-        with destination.open("ab", buffering=0) as fp:
-            view = memoryview(encoded)
-            while view:
-                written = fp.write(view)
-                if written is None or written <= 0:
-                    raise OSError(f"Failed to append a record to {destination}.")
-                view = view[written:]
-            fp.flush()
-            os.fsync(fp.fileno())
+    append_jsonl(destination, record, paths.lock_path)
     return destination
-
-
-def count_jsonl_records(path: Path) -> int:
-    with path.open("rb") as fp:
-        return sum(1 for line in fp if line.strip())
 
 
 def write_metadata(
@@ -93,8 +74,8 @@ def write_metadata(
     phoenix_project: str,
     summaries: list[ObjectRunSummary],
 ) -> dict[str, Any]:
-    trainable_count = count_jsonl_records(paths.output_path)
-    failure_count = count_jsonl_records(paths.failures_path)
+    trainable_count = count_jsonl(paths.output_path)
+    failure_count = count_jsonl(paths.failures_path)
     crashed = [summary for summary in summaries if summary.crashed]
     metadata = {
         "config": config.model_dump(mode="json"),
@@ -120,11 +101,8 @@ def write_metadata(
         "output_path": str(paths.output_path),
         "failures_path": str(paths.failures_path),
     }
-    temporary_path = paths.metadata_path.with_suffix(".json.tmp")
-    with temporary_path.open("w", encoding="utf-8") as fp:
-        json.dump(metadata, fp, indent=2, ensure_ascii=False)
-        fp.write("\n")
-        fp.flush()
-        os.fsync(fp.fileno())
-    os.replace(temporary_path, paths.metadata_path)
+    metadata = QueryRunMetadata.model_validate(metadata).model_dump(
+        mode="json", exclude_unset=True
+    )
+    write_json(paths.metadata_path, metadata)
     return metadata

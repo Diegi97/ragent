@@ -1,24 +1,38 @@
-from typing import List, Optional
+from typing import Any, List, Optional, Protocol
 
-from ragent_core.retrievers.document import RetrievalResult
+from ragent_core.retrievers.document import Document, DocumentId, RetrievalResult
 from ragent_core.retrievers.mode import RetrievalMode
+from ragent_core.retrievers.settings import DEFAULT_TOP_K
 
 
 class BaseRetriever:
-    """Minimal contract for retrievers.
-
-    A retriever takes a list of :class:`Document` records at construction
-    time, indexes them, and returns the top-ranked ones for a query. It does
-    not know anything about chunking or full corpora -- those concepts belong
-    to :class:`AgentRetriever`.
-    """
+    """Search-only interface over a prebuilt corpus. Storage is backend-owned."""
 
     def retrieve(
         self,
         query: str,
         table_name: str,
-        top_k: int = 50,
+        top_k: int = DEFAULT_TOP_K,
         retrieval_mode: Optional[RetrievalMode] = None,
         **kwargs,
     ) -> List[RetrievalResult]:
         raise NotImplementedError
+
+
+class AgentRetrieverBackend(Protocol):
+    """Capabilities required by the agent's search, read, and scan tools."""
+
+    def retrieve(
+        self,
+        query: str,
+        table_name: str,
+        top_k: int = DEFAULT_TOP_K,
+        retrieval_mode: RetrievalMode | None = None,
+        **kwargs: Any,
+    ) -> list[RetrievalResult]: ...
+
+    def get_document(self, doc_id: DocumentId, table_name: str) -> Document | None: ...
+
+    def scan_chunks(
+        self, table_name: str, server_regex: str
+    ) -> list[tuple[str, DocumentId | None, str]]: ...

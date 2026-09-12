@@ -4,8 +4,7 @@ from datasets import load_dataset
 
 from ragent_core.data_sources import (
     DataSourceSpec,
-    filter_by_word_count,
-    keep_only_core_columns,
+    normalize_source_dataset,
 )
 
 logger = logging.getLogger(__name__)
@@ -16,22 +15,7 @@ def load_data_source() -> DataSourceSpec:
 
     dataset = load_dataset("diegi97/mythology", split="train")
 
-    def _formatter(example, index):
-        text = example.get("text")
-        title = example.get("title")
-        if title and text:
-            merged_text = f"# {title}\n\n{text}"
-        else:
-            merged_text = text or title or ""
-        return {
-            "id": int(example.get("id", index)),
-            "title": title,
-            "text": merged_text,
-        }
-
-    dataset = dataset.map(_formatter, with_indices=True)
-    dataset = filter_by_word_count(dataset)
-    dataset = keep_only_core_columns(dataset)
+    dataset = normalize_source_dataset(dataset, id_column="id")
     description = (
         "This dataset is a collection of Wikipedia articles focused on mythology topics. "
         "Each document tells the stories of gods, heroes, and mythical creatures from ancient cultures. "

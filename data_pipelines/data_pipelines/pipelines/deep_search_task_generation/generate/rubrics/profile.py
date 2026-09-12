@@ -1,21 +1,24 @@
-import json
 import re
 import unicodedata
 from collections import Counter
 from itertools import combinations
-from pathlib import Path
 from statistics import mean, median
 from typing import Any, Mapping, Sequence
 
-from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.models import (
-    QuestionRubricAssignment,
-    QuestionRubricRecord,
+from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.audit_contract import (
+    SolverAudit,
 )
-from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.validation import (
+from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.difficulty import (
+    DIFFICULTY_BANDS,
+    DifficultyBandName,
+    difficulty_band,
+    difficulty_thresholds,
+)
+from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.validation.markdown import (
     EVOLUTION_STRATEGIES,
 )
-
-DIFFICULTY_BANDS = ("easy", "middle", "hard", "very_hard", "unknown")
+from ragent_core.artifacts.question_rubric import QuestionRubricRecord
+from ragent_core.judges.criteria import criterion_id
 
 
 def _normalized_text(value: str) -> str:
@@ -53,25 +56,6 @@ def _numeric_summary(values: Sequence[float | int]) -> dict[str, float | int | N
     }
 
 
-def _difficulty_band(percent_passed: float) -> str:
-    if not 0 <= percent_passed <= 100:
-        return "unknown"
-    if percent_passed >= 85:
-        return "easy"
-    if percent_passed >= 60:
-        return "middle"
-    if percent_passed >= 40:
-        return "hard"
-    return "very_hard"
-
-
-def _load_solver_audit(path: Path) -> dict[str, Any]:
-    value = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(value, dict):
-        raise ValueError("solver audit must be a JSON object")
-    return value
-
-
 def _rate_entry(observations: int, passed: int) -> dict[str, int | float | None]:
     return {
         "observations": observations,
@@ -81,11 +65,10 @@ def _rate_entry(observations: int, passed: int) -> dict[str, int | float | None]
 
 
 def build_dataset_profile(
-    assignments: Sequence[QuestionRubricAssignment],
     accepted: Mapping[int, QuestionRubricRecord],
-    audits_directory: Path,
+    solver_audits: Mapping[int, SolverAudit],
+    audit_errors: Sequence[dict[str, Any]] = (),
 ) -> dict[str, Any]:
-    assignment_by_slot = {assignment.slot: assignment for assignment in assignments}
     records = [(slot, accepted[slot]) for slot in sorted(accepted)]
     item_count = len(records)
 
@@ -113,10 +96,10 @@ def build_dataset_profile(
         document_sets.append(item_doc_ids)
         document_item_counts.update(item_doc_ids)
 
-    difficulty_counts: Counter[str] = Counter()
+    difficulty_counts: Counter[DifficultyBandName] = Counter()
     percent_passed_values: list[float] = []
     audited_item_count = 0
-    audit_errors: list[dict[str, Any]] = []
+    audit_errors = list(audit_errors)
     criterion_observations = 0
     criteria_passed = 0
     missing_criterion_judgments = 0
@@ -124,60 +107,34 @@ def build_dataset_profile(
     criterion_text_counts: dict[str, dict[str, Any]] = {}
 
     for slot, record in records:
-        assignment = assignment_by_slot.get(slot)
-        filename = (
-            assignment.filename
-            if assignment is not None
-            else f"question_rubric_{slot:06d}.md"
-        )
-        audit_path = audits_directory / f"{filename}.solver.json"
-        try:
-            solver_audit = _load_solver_audit(audit_path)
-        except (OSError, ValueError) as exc:
-            difficulty_counts["unknown"] += 1
-            audit_errors.append(
-                {
-                    "slot": slot,
-                    "entity": record.entity,
-                    "path": str(audit_path),
-                    "error": f"{type(exc).__name__}: {exc}",
-                }
-            )
+        solver_audit = solver_audits.get(slot)
+        if solver_audit is None:
+            difficulty_counts[DifficultyBandName.UNKNOWN] += 1
+            if not any(error.get("slot") == slot for error in audit_errors):
+                audit_errors.append(
+                    {
+                        "slot": slot,
+                        "entity": record.entity,
+                        "error": "Missing validated solver audit",
+                    }
+                )
             continue
 
         audited_item_count += 1
-        percent_passed = solver_audit.get("percent_passed")
-        if (
-            isinstance(percent_passed, int | float)
-            and not isinstance(percent_passed, bool)
-            and 0 <= percent_passed <= 100
-        ):
-            numeric_percent = float(percent_passed)
-            percent_passed_values.append(numeric_percent)
-            difficulty_counts[_difficulty_band(numeric_percent)] += 1
-        else:
-            difficulty_counts["unknown"] += 1
-
-        judgments = solver_audit.get("judgments")
-        judgment_by_id: dict[str, dict[str, Any]] = {}
-        if isinstance(judgments, list):
-            for judgment in judgments:
-                if not isinstance(judgment, dict):
-                    continue
-                criterion_id = judgment.get("id")
-                if isinstance(criterion_id, str):
-                    judgment_by_id[criterion_id] = judgment
+        percent_passed_values.append(solver_audit.percent_passed)
+        difficulty_counts[difficulty_band(solver_audit.percent_passed)] += 1
+        judgment_by_id = {judgment.id: judgment for judgment in solver_audit.judgments}
         for index, criterion in enumerate(record.rubric, start=1):
-            criterion_id = f"C-{index:03d}"
-            judgment = judgment_by_id.get(criterion_id)
-            passed = judgment.get("passed") if isinstance(judgment, dict) else None
-            if not isinstance(passed, bool):
+            criterion_key = criterion_id(index)
+            judgment = judgment_by_id.get(criterion_key)
+            passed = judgment.passed if judgment is not None else None
+            if passed is None:
                 missing_criterion_judgments += 1
                 continue
 
             criterion_observations += 1
             criteria_passed += int(passed)
-            position = position_counts.setdefault(criterion_id, [0, 0])
+            position = position_counts.setdefault(criterion_key, [0, 0])
             position[0] += 1
             position[1] += int(passed)
 
@@ -203,7 +160,7 @@ def build_dataset_profile(
         intersection = first.intersection(second)
         union = first.union(second)
         overlapping_pair_count += int(bool(intersection))
-        pair_jaccards.append(len(intersection) / len(union) if union else 0.0)
+        pair_jaccards.append(len(intersection) / len(union))
 
     per_criterion_pass_rates = []
     for group in criterion_text_counts.values():
@@ -229,14 +186,13 @@ def build_dataset_profile(
             "strategy_application_count": sum(strategy_counts.values()),
         },
         "difficulty": {
-            "thresholds_percent": {
-                "easy": "85-100",
-                "middle": "60-<85",
-                "hard": "40-<60",
-                "very_hard": "0-<40",
-            },
+            "thresholds_percent": difficulty_thresholds(),
             "distribution": {
-                band: difficulty_counts[band] for band in DIFFICULTY_BANDS
+                name: difficulty_counts[name]
+                for name in [
+                    *(band.name for band in DIFFICULTY_BANDS),
+                    DifficultyBandName.UNKNOWN,
+                ]
             },
             "percent_passed": _numeric_summary(percent_passed_values),
         },

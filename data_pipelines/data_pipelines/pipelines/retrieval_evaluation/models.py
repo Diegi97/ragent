@@ -1,8 +1,10 @@
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import Any
 
-DocumentId: TypeAlias = int | str
+from data_pipelines.pipelines.retrieval_evaluation.contracts import EvaluationMetrics
+from data_pipelines.pipelines.search_query_generation.metadata import QueryRunMetadata
+from ragent_core.retrievers.document import DocumentId
 
 
 @dataclass(frozen=True)
@@ -22,7 +24,21 @@ class DatasetContext:
     metadata_path: Path
     table_name: str
     logical_namespace: str
-    source_metadata: dict[str, Any]
+    source_metadata: QueryRunMetadata
+
+    def to_provenance(self) -> dict[str, Any]:
+        metadata = self.source_metadata
+        source_config = metadata.config
+        return {
+            "input_directory": str(self.input_directory),
+            "queries_path": str(self.queries_path),
+            "metadata_path": str(self.metadata_path),
+            "batch_timestamp": metadata.batch_timestamp,
+            "prefect_flow_run_id": metadata.prefect_flow_run_id,
+            "generator_model": source_config.generator_model,
+            "requested_records": metadata.requested_records,
+            "trainable_records": metadata.trainable_records,
+        }
 
 
 @dataclass(frozen=True)
@@ -33,7 +49,7 @@ class EvaluationSummary:
     total_queries: int
     successful_queries: int
     failed_queries: int
-    metrics: dict[str, Any]
+    metrics: EvaluationMetrics
 
     @property
     def coverage(self) -> float:

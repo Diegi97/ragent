@@ -40,6 +40,14 @@ General generation logic:
 
 The complete generation and contrastive-narrowing contracts are defined in [`prompts.py`](data_pipelines/pipelines/search_query_generation/prompts.py).
 
+Fireworks upload metadata stores the normalized dataset name and example count.
+Provider failures use stable categories; raw provider bodies stay out of workflow
+error messages, with original exceptions retained as diagnostic causes.
+
+Fireworks uploads are not retried automatically. If an upload times out, inspect
+the dataset ID recorded in the prepare metadata before recovery; creation may
+have succeeded remotely. Running prepare again starts a new generation job.
+
 ### 3. Retrieval evaluation
 
 Evaluates a completed retrieval-query run against one dense, BM25, hybrid, or reranked Turbopuffer configuration. It reports chunk- and document-level ranking quality, coverage, and latency.
@@ -90,6 +98,10 @@ uv run deep-search-tasks retriever \
   --rerank-threshold 3.0
 ```
 
+Restart the worker and its clients together after upgrading. IPC protocol version 2
+uses the contract module for pickled messages; mixed versions fail the initial
+health check before a client registers or submits work.
+
 The worker binds to localhost, loads one `TurbopufferRetriever`, buffers incoming requests in a FIFO queue, and processes one complete retrieval request at a time. This keeps work units predictable and lets each request use the GPU efficiently without exposing the model to uncontrolled concurrent load. `--num-chunks-per-entity` is the maximum candidate count presented to the CrossEncoder; only candidates passing `--rerank-threshold` are returned.
 
 ### 2. Prepare entities and fact requests
@@ -103,7 +115,7 @@ uv run deep-search-tasks prepare \
   --num-entities 10
 ```
 
-The command creates a prepare-run directory and a Fireworks input dataset named `deep-search-tasks-<data-source>-<UTC-timestamp>-<retained-entities>e`. Launch the fact-extraction batch in Fireworks and wait for its output dataset; the pipeline deliberately does not create or poll that external job.
+The command creates a prepare-run directory and a Fireworks input dataset named `deep-search-tasks-<source-slug>-<run-UUID-hex>` (at most 63 characters). Launch the fact-extraction batch in Fireworks and wait for its output dataset; the pipeline deliberately does not create or poll that external job.
 
 To continue from entities produced by an earlier prepare run, pass its entity file:
 
@@ -185,6 +197,10 @@ uv run python scripts/upload_question_rubrics.py \
   <data-source>
 ```
 
+Run one publisher at a time for a destination dataset. Repeating a completed
+batch is a no-op, but the Hub read/merge/push sequence does not coordinate
+concurrent publishers.
+
 The default destination is the private `diegi97/ragent-rubrics` dataset with a 10% test split. Use `--replace-data`, `--test-size`, or a third positional dataset ID to override those defaults.
 
 ## Run retrieval-query generation
@@ -259,3 +275,83 @@ uv run python -m prefect gcl inspect deep-search-tasks-openai-llm
 ```
 
 Retrieval-query generation uses the `local-retriever` and `openai-llm` limits. Do not reset an occupied limit while its original run is still active. When cancelling normally, press `Ctrl+C` once and let Prefect finish releasing its leases.
+
+## Development boundaries and checks
+
+Each workflow owns its CLI, configuration, stages, and output models. Shared
+OpenAI and Fireworks integration belongs in `data_pipelines.providers`; artifact
+IO and retrieval-query records belong in `data_pipelines.artifacts`. The local
+retrieval worker owns its IPC contracts, broker, server, and async client. Rubric
+validation, solver execution, and Hub publishing have separate package owners.
+
+Fact extraction accepts only document IDs present in the originating request.
+Identical responses are collapsed; conflicting duplicates, malformed responses,
+and missing requests appear in diagnostics and cause a partial or failed
+result. A valid empty fact response is allowed. For example, a run that produces
+records while an expected batch response is missing reports:
+
+```json
+{"status": "partial"}
+```
+
+Query failure artifacts retain the human-readable `failure_reason` and add a
+stable `reason_code` for filtered queries, such as `round_trip_miss`. Retrieval
+evaluation resolves the generated query filename from source metadata inside the
+selected input directory, including after a run directory has been relocated.
+
+Rubric workspace helpers invoke the project interpreter and use the same
+Markdown grammar and typed audit contracts as the parent process. Accepted
+solver audits feed the dataset profile directly. Difficulty calibration uses
+the rubric score; citation grounding remains a separate environment reward.
+
+The question-rubric publisher deduplicates incoming records before splitting.
+Replaying an existing batch preserves train/test assignments and skips an
+unchanged Hub publication. Conflicting versions of a question require explicit
+source replacement; replacement retains other sources. Legacy `question_type`
+is discarded and missing `evolution_strategies` defaults to an empty list.
+
+Run offline regression tests from this directory:
+
+```bash
+uv run --locked pytest
+uv run --locked generate-search-queries run --help
+uv run --locked deep-search-tasks --help
+uv run --locked evaluate-retrieval run --help
+```
+
+Tests use fake model/Hub/SDK adapters, temporary artifacts, and a local IPC
+server. Live pipeline smoke tests additionally require the configured Prefect,
+model, and Turbopuffer services and credentials.
+
+Provider and subprocess failures are distinct from candidate rejection. If
+retries recover and satisfy the requested output, generation succeeds. Exhausted
+LLM or Pi failures, or an incomplete solver/retrieval audit for the final
+candidate, fail the run and retain diagnostics and any records already written.
+An empty result is reserved for valid no-content or rejected-candidate outcomes.
+
+Python imports also use semantic owners directly: retrieve generation
+configuration from `pipelines.search_query_generation.config`, its batch flow
+from `.pipeline`, and retrieval-evaluation configuration, result models, and
+execution from `.config`, `.models`, and `.evaluator`. The three installed CLI
+command names remain unchanged.
+
+Deep-search fact contracts live in `deep_search_task_generation.facts`; preparation
+entities, paths, and statuses live in `deep_search_task_generation.prepare.models`.
+The shared generation status is implemented in `deep_search_task_generation.generate`.
+
+Persisted prepare metadata is defined by `prepare.models.PrepareRunMetadata`, and
+query-run metadata by `search_query_generation.metadata.QueryRunMetadata`.
+Writers and downstream loaders use those contracts; older optional diagnostics
+and additional fields are retained. Query metadata must explicitly identify its
+logical namespace. Local rubric datasets share
+`ragent_core.artifacts.question_rubric.QuestionRubricDatasetMetadata` with the
+evaluation environment, which validates `prepare_config.data_source` before
+reading records. Pipeline-specific diagnostics remain extensible.
+
+Retrieval audits keep the legacy JSON key `all_supporting_docs_in_top_10`;
+Python callers use `RetrievalAudit.all_supporting_docs_retrieved`. The probe and
+its generated instructions use the search tool's shared `SEARCH_TOP_K` depth.
+
+The Hub publisher derives its dataset `Features` from the canonical rubric
+record schema. Unsupported new schema shapes fail explicitly during conversion
+so changes cannot silently drop dataset columns.

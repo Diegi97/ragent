@@ -1,12 +1,14 @@
 import argparse
 import asyncio
 import logging
-import os
 
-from build_turbopuffer_indexes import build_turbopuffer_index
 from datasets import Dataset, load_dataset
 
-from ragent_core.retrievers import Document
+from ragent_core.retrievers.document import Document
+from ragent_core.retrievers.indexing import (
+    build_turbopuffer_index,
+)
+from ragent_core.retrievers.indexing.options import add_indexing_options
 
 logger = logging.getLogger(__name__)
 
@@ -20,23 +22,13 @@ def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Build a standalone Turbopuffer corpus for PersonaHub."
     )
-    parser.add_argument("--namespace", default="default")
-    parser.add_argument(
-        "--namespace-prefix",
-        default=os.getenv("TURBOPUFFER_NAMESPACE_PREFIX", "ragent"),
-    )
+    add_indexing_options(parser)
     parser.add_argument("--table-name", default=DEFAULT_TABLE_NAME)
-    parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument(
         "--limit",
         type=int,
         default=None,
         help="Optionally index only the first N personas for smoke tests.",
-    )
-    parser.add_argument("--device", choices=("cpu", "cuda", "mps"), default=None)
-    parser.add_argument(
-        "--embedding-service-url",
-        default=os.getenv("RAGENT_EMBEDDING_SERVICE_URL"),
     )
     return parser.parse_args()
 
@@ -64,7 +56,7 @@ def _load_personahub(limit: int | None = None) -> list[Document]:
 
 
 async def build_index(args: argparse.Namespace) -> None:
-    documents = _load_personahub(args.limit)
+    documents = await asyncio.to_thread(_load_personahub, args.limit)
     logger.info(
         "Building Turbopuffer PersonaHub corpus '%s' in logical namespace '%s' "
         "from %d personas",

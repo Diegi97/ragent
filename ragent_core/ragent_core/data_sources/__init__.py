@@ -1,11 +1,13 @@
 import importlib
 import logging
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, Protocol
 
 from datasets import Dataset, load_dataset
 
 from ragent_core.config import HF_TOKEN
+from ragent_core.data_sources.records import CORE_COLUMNS, source_record
+from ragent_core.retrievers.document import Document
 
 logger = logging.getLogger(__name__)
 
@@ -16,9 +18,43 @@ class DataSourceSpec:
     name: Optional[str] = None
     description: Optional[str] = None
 
+    @classmethod
+    def from_loader_result(cls, result: Any) -> "DataSourceSpec":
+        if isinstance(result, cls):
+            return result
+        if isinstance(result, Dataset):
+            return cls(dataset=result)
+        if isinstance(result, tuple) and len(result) == 2:
+            dataset, description = result
+            if not isinstance(dataset, Dataset) or (
+                description is not None and not isinstance(description, str)
+            ):
+                raise TypeError("Loader tuple must contain (Dataset, description)")
+            return cls(dataset=dataset, description=description)
+        raise TypeError(
+            "load_data_source must return a Dataset, (Dataset, description), or DataSourceSpec"
+        )
 
-def safe_ds_name(dataset_name):
+
+class DataSourceLoader(Protocol):
+    def __call__(self) -> Dataset | tuple[Dataset, str | None] | DataSourceSpec: ...
+
+
+def safe_ds_name(dataset_name: str) -> str:
     return dataset_name.replace("-", "_").replace("/", "_").replace(".", "_")
+
+
+def normalize_source_dataset(
+    dataset: Dataset, *, id_column: str | None = None
+) -> Dataset:
+    """Normalize source documents, then apply the shared corpus size/schema policy."""
+
+    def format_record(example: dict[str, Any], index: int) -> dict[str, Any]:
+        document_id = int(example.get(id_column, index)) if id_column else index
+        return source_record(document_id, example.get("title"), example.get("text"))
+
+    dataset = dataset.map(format_record, with_indices=True)
+    return keep_only_core_columns(filter_by_word_count(dataset))
 
 
 def filter_by_word_count(
@@ -50,7 +86,7 @@ def keep_only_core_columns(dataset: Dataset) -> Dataset:
     Returns:
         Dataset with only id, title, and text columns
     """
-    columns_to_keep = {"id", "title", "text"}
+    columns_to_keep = CORE_COLUMNS
     columns_to_remove = [
         col for col in dataset.column_names if col not in columns_to_keep
     ]
@@ -59,7 +95,7 @@ def keep_only_core_columns(dataset: Dataset) -> Dataset:
     return dataset
 
 
-def get_data_source_loader(dataset_name):
+def get_data_source_loader(dataset_name: str) -> DataSourceLoader:
     module_name = safe_ds_name(dataset_name)
     module = importlib.import_module(f".{module_name}", package=__package__)
     return getattr(module, "load_data_source")
@@ -75,40 +111,32 @@ def load_corpus(dataset_id: str) -> tuple[Dataset, Optional[str], Optional[str]]
     """
     try:
         loader = get_data_source_loader(dataset_id)
-        result = loader()
-        spec = normalize_data_source_result(result)
-        return spec.dataset, spec.name, spec.description
-    except (ModuleNotFoundError, AttributeError, ImportError):
+    except ModuleNotFoundError as exc:
+        expected_module = f"{__package__}.{safe_ds_name(dataset_id)}"
+        if exc.name != expected_module:
+            raise
         logger.info(
-            f"No preprocessing pipeline found for {dataset_id}, loading from HuggingFace."
+            "No preprocessing pipeline found for %s, loading from HuggingFace",
+            dataset_id,
         )
         dataset = load_dataset(dataset_id, token=HF_TOKEN)
-        # Default to "train" split if multiple splits exist
         if isinstance(dataset, dict):
-            if "train" in dataset:
-                ds = dataset["train"]
-            else:
-                ds = dataset[next(iter(dataset.keys()))]
-        else:
-            ds = dataset
-        return ds, None, None
-
-
-def normalize_data_source_result(result: Any) -> DataSourceSpec:
-    if isinstance(result, DataSourceSpec):
-        return result
-    if isinstance(result, tuple) and len(result) == 2:
-        dataset, name, description = result
-        if not isinstance(dataset, Dataset):
-            raise TypeError(
-                "load_data_source must return a Dataset or DataSourceSpec as the first element"
+            dataset = (
+                dataset["train"] if "train" in dataset else dataset[next(iter(dataset))]
             )
-        return DataSourceSpec(dataset=dataset, name=name, description=description)
-    if isinstance(result, Dataset):
-        return DataSourceSpec(dataset=result, description=None)
-    raise TypeError(
-        "load_data_source must return a Dataset, (Dataset, description) tuple, or DataSourceSpec"
-    )
+        spec = DataSourceSpec.from_loader_result(dataset)
+    else:
+        spec = DataSourceSpec.from_loader_result(loader())
+
+    if "id" not in spec.dataset.column_names:
+        raise ValueError(f"Corpus {dataset_id!r} must contain an id column")
+
+    def normalize_record(record: dict[str, Any]) -> dict[str, Any]:
+        document = Document.from_dict(record)
+        return {"id": document.id, "title": document.title, "text": document.content}
+
+    dataset = spec.dataset.map(normalize_record)
+    return dataset, spec.name, spec.description
 
 
 __all__ = [
@@ -117,6 +145,6 @@ __all__ = [
     "get_data_source_loader",
     "keep_only_core_columns",
     "load_corpus",
-    "normalize_data_source_result",
+    "normalize_source_dataset",
     "safe_ds_name",
 ]

@@ -1,42 +1,19 @@
 import math
 import statistics
-from collections.abc import Iterable, Sequence
-from typing import Any
+from collections.abc import Sequence
+
+from data_pipelines.pipelines.retrieval_evaluation.contracts import (
+    AggregateCutoffMetrics,
+    AggregateMetrics,
+    LatencySummary,
+    RankMetrics,
+)
 
 
-def normalize_id(value: Any) -> str:
-    """Normalize numeric and string identifiers using the retriever convention."""
-    return str(value)
-
-
-def deduplicate_ids(values: Iterable[Any]) -> list[Any]:
-    seen: set[str] = set()
-    deduplicated: list[Any] = []
-    for value in values:
-        if value is None:
-            continue
-        normalized = normalize_id(value)
-        if normalized in seen:
-            continue
-        seen.add(normalized)
-        deduplicated.append(value)
-    return deduplicated
-
-
-def target_rank(ranked_ids: Sequence[Any], target_id: Any) -> int | None:
-    normalized_target = normalize_id(target_id)
-    return next(
-        (
-            rank
-            for rank, candidate_id in enumerate(ranked_ids, start=1)
-            if normalize_id(candidate_id) == normalized_target
-        ),
-        None,
-    )
-
-
-def metrics_for_rank(rank: int | None, cutoffs: Sequence[int]) -> dict[str, Any]:
-    metrics: dict[str, Any] = {}
+def metrics_for_rank(
+    rank: int | None, cutoffs: Sequence[int]
+) -> dict[str, RankMetrics]:
+    metrics: dict[str, RankMetrics] = {}
     for cutoff in cutoffs:
         hit = rank is not None and rank <= cutoff
         reciprocal_rank = 1.0 / rank if hit and rank is not None else 0.0
@@ -54,8 +31,8 @@ def metrics_for_rank(rank: int | None, cutoffs: Sequence[int]) -> dict[str, Any]
 def aggregate_metrics(
     ranks: Sequence[int | None],
     cutoffs: Sequence[int],
-) -> dict[str, Any]:
-    cutoff_metrics: dict[str, Any] = {}
+) -> AggregateMetrics:
+    cutoff_metrics: dict[str, AggregateCutoffMetrics] = {}
     for cutoff in cutoffs:
         contributions = [
             metrics_for_rank(rank, (cutoff,))[str(cutoff)] for rank in ranks
@@ -101,4 +78,30 @@ def aggregate_metrics(
             "hits": len(hit_ranks),
             "misses": len(ranks) - len(hit_ranks),
         },
+    }
+
+
+def _percentile(values: Sequence[float], percentile: float) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    position = (len(ordered) - 1) * percentile
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return ordered[lower]
+    weight = position - lower
+    return ordered[lower] * (1.0 - weight) + ordered[upper] * weight
+
+
+def latency_summary(latencies_ms: Sequence[float], total_ms: float) -> LatencySummary:
+    return {
+        "total_ms": total_ms,
+        "mean_query_ms": (
+            sum(latencies_ms) / len(latencies_ms) if latencies_ms else None
+        ),
+        "p50_query_ms": _percentile(latencies_ms, 0.5),
+        "p95_query_ms": _percentile(latencies_ms, 0.95),
+        "min_query_ms": min(latencies_ms) if latencies_ms else None,
+        "max_query_ms": max(latencies_ms) if latencies_ms else None,
     }

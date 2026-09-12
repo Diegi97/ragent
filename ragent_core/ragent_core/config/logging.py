@@ -33,7 +33,6 @@ def configure_logging(level: str = "INFO") -> None:
                 "handlers": ["console"],
                 "level": level,
             },
-            # ← NEW
             "loggers": {
                 "httpx": {
                     "level": "WARNING",  # DEBUG/INFO are now muted

@@ -15,7 +15,7 @@ from .utils import (
 
 logger = logging.getLogger(__name__)
 
-# Arbitrary list of technologies I wanted to keep
+# Supported documentation collections for this corpus
 ALLOWED_LANGUAGES = {
     "terraform",
     "scikit_learn",

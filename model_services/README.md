@@ -72,3 +72,19 @@ support for `Retry-After`. Override the backoff with
 `RAGENT_MODEL_SERVICE_RETRY_MAX_SECONDS`. Permanent 4xx responses and
 malformed successful responses are not retried. The retrieval-query pipeline
 always uses RRF-only retrieval and does not load the reranker.
+
+## Shared model contract
+
+`model_services/model_contract.py` is generated from the canonical core model
+contract and model defaults. This keeps the service deployable independently of
+the core retrieval dependency tree. After changing those core owners, regenerate
+and verify from this directory:
+
+```bash
+uv run --locked python scripts/sync_model_contract.py
+uv run --locked python scripts/sync_model_contract.py --check
+uv run --locked pytest
+```
+
+Do not edit the generated copy directly. The test suite checks for stale output
+and verifies service routes and response normalization against the core client.

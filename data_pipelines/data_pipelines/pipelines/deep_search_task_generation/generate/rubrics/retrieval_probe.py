@@ -10,24 +10,33 @@ import json
 import os
 import sys
 import tomllib
-import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
 
-from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.validation import (
-    question_rubric_sha256,
-    validate_question_rubric_file,
+from data_pipelines.artifacts.io import write_json
+from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.audit_contract import (
+    AUDITS_DIRECTORY_ENV,
+    DATA_SOURCE_ENV,
+    EVALUATION_CONFIG_ENV,
+    AuditPaths,
+    RetrievalAudit,
 )
-
-EVALUATION_CONFIG_ENV = "RAGENT_EVALUATION_CONFIG"
-DATA_SOURCE_ENV = "RAGENT_DATA_SOURCE"
-AUDITS_DIRECTORY_ENV = "RAGENT_AUDITS_DIRECTORY"
+from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.validation.audits import (
+    begin_candidate_audit,
+)
+from ragent_core.retrievers.tool_protocol import (
+    MAX_READ_DOCUMENTS,
+    MAX_SEARCH_QUERIES,
+    ToolName,
+    search_document_ids,
+)
 
 
 def _runtime_types() -> tuple[type[Any], type[Any]]:
-    from ragent_deep_search.toolset import RagentToolset, RagentToolsetConfig
+    from ragent_deep_search.toolset import RagentToolset
+    from ragent_deep_search.toolset.config import RagentToolsetConfig
 
     return RagentToolset, RagentToolsetConfig
 
@@ -58,17 +67,8 @@ def _audits_directory() -> Path:
     return path
 
 
-def _write_json(path: Path, value: dict[str, Any]) -> None:
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(
-        json.dumps(value, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
-    os.replace(temporary, path)
-
-
 def _audit_path(candidate: Path) -> Path:
-    return _audits_directory() / f"{candidate.name}.retrieval.json"
+    return AuditPaths(_audits_directory(), candidate.name).retrieval
 
 
 def _load_tool_config() -> Any:
@@ -85,60 +85,48 @@ def _load_tool_config() -> Any:
     return config
 
 
-async def _call_tool(command: str, values: list[str]) -> str:
+async def _call_tool(command: str, command_values: list[str]) -> str:
     toolset_type, _ = _runtime_types()
-    toolset = toolset_type(_load_tool_config())
+    config = await asyncio.to_thread(_load_tool_config)
+    toolset = toolset_type(config)
     await toolset.setup()
-    if command == "search":
-        return await toolset.search(values, table_name=_data_source())
-    if command == "read":
+    if command == ToolName.SEARCH:
+        return await toolset.search(command_values, table_name=_data_source())
+    if command == ToolName.READ:
         return await toolset.read(
-            [int(value) for value in values],
+            [int(value) for value in command_values],
             table_name=_data_source(),
         )
     raise ValueError(f"unsupported corpus command: {command}")
 
 
-def _search_document_ids(search_output: str) -> list[int]:
-    root = ET.fromstring(search_output)
-    return list(
-        dict.fromkeys(
-            int(element.text.strip())
-            for element in root.findall(".//result/id")
-            if element.text and element.text.strip()
-        )
-    )
-
-
 async def _run_probe(candidate: Path) -> dict[str, Any]:
     candidate = candidate.expanduser().resolve()
-    digest = question_rubric_sha256(candidate)
-    audit_path = _audit_path(candidate)
-    failed_audit: dict[str, Any] = {
-        "ok": False,
-        "candidate_sha256": digest,
-    }
-    _write_json(audit_path, failed_audit)
-    record = validate_question_rubric_file(candidate)
-    search_output = await _call_tool("search", [record.question])
-    retrieved_doc_ids = _search_document_ids(search_output)
+    audit_path = await asyncio.to_thread(_audit_path, candidate)
+    record, digest = await asyncio.to_thread(
+        begin_candidate_audit, candidate, audit_path
+    )
+    search_output = await _call_tool(ToolName.SEARCH, [record.question])
+    retrieved_doc_ids = search_document_ids(search_output)
     supporting_doc_ids = list(record.doc_ids)
     missing_doc_ids = [
         doc_id for doc_id in supporting_doc_ids if doc_id not in retrieved_doc_ids
     ]
     probe_passed = bool(missing_doc_ids)
-    result = {
-        "ok": True,
-        "candidate_sha256": digest,
-        "question": record.question,
-        "supporting_doc_ids": supporting_doc_ids,
-        "retrieved_doc_ids": retrieved_doc_ids,
-        "missing_doc_ids": missing_doc_ids,
-        "all_supporting_docs_in_top_10": not missing_doc_ids,
-        "too_easy": not probe_passed,
-        "probe_passed": probe_passed,
-    }
-    _write_json(audit_path, result)
+    result = RetrievalAudit.model_validate(
+        {
+            "ok": True,
+            "candidate_sha256": digest,
+            "question": record.question,
+            "supporting_doc_ids": supporting_doc_ids,
+            "retrieved_doc_ids": retrieved_doc_ids,
+            "missing_doc_ids": missing_doc_ids,
+            "all_supporting_docs_retrieved": not missing_doc_ids,
+            "too_easy": not probe_passed,
+            "probe_passed": probe_passed,
+        }
+    ).model_dump(mode="json")
+    await asyncio.to_thread(write_json, audit_path, result)
     return result
 
 
@@ -147,9 +135,9 @@ def _parse_args() -> argparse.Namespace:
     subparsers = parser.add_subparsers(dest="command", required=True)
     probe = subparsers.add_parser("probe")
     probe.add_argument("candidate", type=Path)
-    search = subparsers.add_parser("search")
+    search = subparsers.add_parser(ToolName.SEARCH)
     search.add_argument("queries", nargs="+")
-    read = subparsers.add_parser("read")
+    read = subparsers.add_parser(ToolName.READ)
     read.add_argument("doc_ids", nargs="+")
     return parser.parse_args()
 
@@ -158,13 +146,16 @@ async def _main() -> dict[str, Any] | str:
     args = _parse_args()
     if args.command == "probe":
         return await _run_probe(args.candidate)
-    values = args.queries if args.command == "search" else args.doc_ids
-    if len(values) > 3:
-        raise ValueError(f"{args.command} accepts at most three values")
-    return await _call_tool(args.command, values)
+    command_values = args.queries if args.command == ToolName.SEARCH else args.doc_ids
+    limit = (
+        MAX_SEARCH_QUERIES if args.command == ToolName.SEARCH else MAX_READ_DOCUMENTS
+    )
+    if len(command_values) > limit:
+        raise ValueError(f"{args.command} accepts at most {limit} values")
+    return await _call_tool(args.command, command_values)
 
 
-if __name__ == "__main__":
+def main() -> None:
     try:
         result = asyncio.run(_main())
         print(
@@ -181,3 +172,7 @@ if __name__ == "__main__":
             file=sys.stderr,
         )
         raise SystemExit(1) from exc
+
+
+if __name__ == "__main__":
+    main()

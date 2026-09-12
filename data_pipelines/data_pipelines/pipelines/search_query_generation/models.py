@@ -1,34 +1,27 @@
 from dataclasses import dataclass, field, replace
+from enum import StrEnum
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import Any
 
-DocumentId: TypeAlias = int | str
+from data_pipelines.artifacts.retrieval_queries import (
+    RetrievalChunk,
+    TrainingRecord,
+)
+from ragent_core.retrievers.document import DocumentId
 
 
-@dataclass(frozen=True)
-class RetrievalChunk:
-    id: DocumentId
-    title: str = ""
-    text: str = ""
-    document_id: DocumentId | None = None
-    metadata: dict[str, Any] = field(default_factory=dict)
-    score: float = 0.0
-    sources: tuple[str, ...] = field(default_factory=tuple)
-    source_ranks: dict[str, int] = field(default_factory=dict)
+class QueryStatus(StrEnum):
+    SAMPLED = "sampled"
+    GENERATED = "generated"
+    MINED = "mined"
+    READY = "ready"
+    FILTERED = "filtered"
+    FAILED = "failed"
 
-    def to_dict(self, include_text: bool = True) -> dict[str, Any]:
-        value = {
-            "id": self.id,
-            "title": self.title,
-            "document_id": self.document_id,
-            "metadata": self.metadata,
-            "score": self.score,
-            "sources": list(self.sources),
-            "source_ranks": self.source_ranks,
-        }
-        if include_text:
-            value["text"] = self.text
-        return value
+
+class FilterReason(StrEnum):
+    ROUND_TRIP_MISS = "round_trip_miss"
+    CONTRASTIVE_REJECTION = "contrastive_rejection"
 
 
 @dataclass(frozen=True)
@@ -38,33 +31,76 @@ class RetrievalQuery:
     positive: RetrievalChunk | None = None
     hard_negatives: tuple[RetrievalChunk, ...] = field(default_factory=tuple)
     candidates: tuple[RetrievalChunk, ...] = field(default_factory=tuple)
-    status: str = "sampled"
+    status: QueryStatus = QueryStatus.SAMPLED
     failure_reason: str | None = None
+    reason_code: FilterReason | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
-    def with_metadata(self, status: str, **metadata: Any) -> "RetrievalQuery":
+    def with_metadata(self, status: QueryStatus, **metadata: Any) -> "RetrievalQuery":
         return replace(
             self,
             status=status,
             failure_reason=None,
+            reason_code=None,
             metadata={**self.metadata, **metadata},
         )
 
     def failed(
         self,
-        status: str,
+        status: QueryStatus,
         reason: str,
+        reason_code: FilterReason | None = None,
         **metadata: Any,
     ) -> "RetrievalQuery":
         return replace(
             self,
             status=status,
             failure_reason=reason,
+            reason_code=reason_code,
             metadata={**self.metadata, **metadata},
         )
 
     def is_trainable(self) -> bool:
-        return self.status == "ready" and bool(self.query) and self.positive is not None
+        return (
+            self.status is QueryStatus.READY
+            and bool(self.query)
+            and self.positive is not None
+        )
+
+    @staticmethod
+    def resolve_hard_negatives(
+        selected_ids: list[str], candidates: tuple[RetrievalChunk, ...]
+    ) -> tuple[RetrievalChunk, ...]:
+        candidate_by_id = {str(candidate.id): candidate for candidate in candidates}
+        return tuple(
+            candidate_by_id[chunk_id]
+            for chunk_id in selected_ids
+            if chunk_id in candidate_by_id
+        )
+
+    def to_training_record(self, hard_negatives_per_query: int) -> dict[str, Any]:
+        if self.positive is None:
+            raise ValueError(
+                "Cannot serialize a training record without a positive chunk."
+            )
+        hard_negatives = self.hard_negatives[:hard_negatives_per_query]
+        return TrainingRecord(
+            query=self.query,
+            positive=self.positive,
+            hard_negatives=hard_negatives,
+            metadata={**self.metadata, "doc_id": self.doc_id, "status": self.status},
+        ).to_dict()
+
+    def to_failure_record(self) -> dict[str, Any]:
+        return {
+            "query": self.query,
+            "doc_id": self.doc_id,
+            "positive": self.positive.to_dict() if self.positive is not None else None,
+            "status": self.status,
+            "failure_reason": self.failure_reason,
+            "reason_code": self.reason_code,
+            "metadata": self.metadata,
+        }
 
     def to_trace_dict(self) -> dict[str, Any]:
         """Serialize the complete inspectable object state for Phoenix."""
@@ -89,33 +125,7 @@ class RetrievalQuery:
             ],
             "status": self.status,
             "failure_reason": self.failure_reason,
-            "metadata": self.metadata,
-        }
-
-    def to_training_record(self, hard_negatives_per_query: int) -> dict[str, Any]:
-        if self.positive is None:
-            raise ValueError(
-                "Cannot serialize a training record without a positive chunk."
-            )
-        hard_negatives = self.hard_negatives[:hard_negatives_per_query]
-        return {
-            "query": self.query,
-            "positive": self.positive.to_dict(),
-            "hard_negatives": [chunk.to_dict() for chunk in hard_negatives],
-            "metadata": {
-                **self.metadata,
-                "doc_id": self.doc_id,
-                "status": self.status,
-            },
-        }
-
-    def to_failure_record(self) -> dict[str, Any]:
-        return {
-            "query": self.query,
-            "doc_id": self.doc_id,
-            "positive": self.positive.to_dict() if self.positive is not None else None,
-            "status": self.status,
-            "failure_reason": self.failure_reason,
+            "reason_code": self.reason_code,
             "metadata": self.metadata,
         }
 
@@ -134,7 +144,7 @@ class ObjectRunSummary:
     object_id: str
     sample_index: int
     row_index: int
-    status: str
+    status: QueryStatus
     phoenix_trace_id: str
     crashed: bool = False
     error: str | None = None
