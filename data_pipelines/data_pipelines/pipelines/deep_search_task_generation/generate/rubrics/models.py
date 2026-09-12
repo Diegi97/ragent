@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+from typing import Literal
 
 from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.validation import (
     QuestionRubricRecord,
@@ -53,6 +54,9 @@ class FactWorkspace:
 class QuestionRubricAssignment:
     slot: int
     entity_fact: EntityFactMemoryRecord
+    recommended_style: Literal["focused", "integrated", "broad_synthesis"] = (
+        "integrated"
+    )
 
     @property
     def filename(self) -> str:

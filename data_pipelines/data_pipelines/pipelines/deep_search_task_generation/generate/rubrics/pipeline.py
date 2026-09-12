@@ -165,13 +165,29 @@ def build_question_rubric_assignments(
                 f"{num_question_rubrics} usable entities; found {len(usable)}"
             )
         selected = random.Random(seed).sample(usable, k=num_question_rubrics)
-        return [
-            QuestionRubricAssignment(slot=slot, entity_fact=entity_fact)
-            for slot, entity_fact in enumerate(selected)
-        ]
+    else:
+        selected = [usable[slot % len(usable)] for slot in range(num_question_rubrics)]
+
+    # Largest-remainder allocation keeps small batches close to 30/40/30.
+    weights = {"focused": 3, "integrated": 4, "broad_synthesis": 3}
+    counts = {
+        style: num_question_rubrics * weight // 10 for style, weight in weights.items()
+    }
+    remainder_order = sorted(
+        weights,
+        key=lambda style: num_question_rubrics * weights[style] % 10,
+        reverse=True,
+    )
+    for style in remainder_order[: num_question_rubrics - sum(counts.values())]:
+        counts[style] += 1
+    recommendations = [style for style, count in counts.items() for _ in range(count)]
+    # Use a separate RNG so entity sampling does not change the style allocation.
+    random.Random(seed).shuffle(recommendations)
     return [
-        QuestionRubricAssignment(slot=slot, entity_fact=usable[slot % len(usable)])
-        for slot in range(num_question_rubrics)
+        QuestionRubricAssignment(
+            slot=slot, entity_fact=entity_fact, recommended_style=recommendations[slot]
+        )
+        for slot, entity_fact in enumerate(selected)
     ]
 
 

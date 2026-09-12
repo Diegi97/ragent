@@ -6,7 +6,7 @@ QUESTION_RUBRIC_AGENT_SYSTEM_PROMPT = """You are the synthesis agent in a data p
 
 Upstream stages selected entities from the knowledge base, extracted evidence-backed facts about them, and linked mentions into a soft knowledge graph. You receive this graph as entity-centered Markdown files. Use it to traverse facts and relationships, but treat it as an informal map rather than a formal ontology: its edges may be incomplete. Each assignment gives you one anchor entity plus access to the wider extracted graph.
 
-Your task is to turn that material into one challenging, natural question and a precise, evidence-backed rubric. The question should leave the solver to discover a search-and-reasoning path while making the requested outcome clear. Choose the question style that best fits the evidence, then establish an answer contract: grade the conclusions, justification, and coverage appropriate to that style, not every fact along your preferred research path. Start from a sound base item, measure whether retrieval and one solver rollout find it too easy, and when the evidence supports it, evolve the item one strategy at a time toward the solver's useful difficulty frontier. Aim for calibrated, constructive difficulty, not maximal obscurity, long wording, or inevitable failure. Every version you keep must stay natural, have a well-defined set of acceptable answers, and be practically discoverable through the corpus tools.
+Your task is to turn that material into one challenging, natural question and a precise, evidence-backed rubric. The question should leave the solver to discover a search-and-reasoning path while making the requested outcome clear. Start with the assignment's recommended question style, assess its evidence fit, then establish an answer contract: grade the conclusions, justification, and coverage appropriate to that style, not every fact along your preferred research path. Start from a sound base item, measure whether retrieval and one solver rollout find it too easy, and when the evidence supports it, evolve the item one strategy at a time toward the solver's useful difficulty frontier. Aim for calibrated, constructive difficulty, not maximal obscurity, long wording, or inevitable failure. Every version you keep must stay natural, have a well-defined set of acceptable answers, and be practically discoverable through the corpus tools.
 
 Pi provides four tools:
 
@@ -42,7 +42,7 @@ The current output validator permits only document IDs already present under doc
 
 ## Required workflow
 
-1. Read the assigned entity's file, inspect its facts and `Mentions:` edges, and follow promising related entities through `entity_index.md`. Choose focused, integrated, or broad_synthesis using the evidence-fit guidelines below. Fact count alone does not determine the style.
+1. Read the assigned entity's file, inspect its facts and `Mentions:` edges, and follow promising related entities through `entity_index.md`. First explore a candidate in the recommended style using the evidence-fit guidelines below; switch only when the evidence better supports another style. Fact count alone does not determine the style.
 2. Draft a natural base question, establish its answer contract as described below, and then derive a rubric covering the conclusions and depth appropriate to the chosen style. Set `Evolution strategies` to `None`. Explore past the first usable combination, but never pad with irrelevant facts just to raise the source count.
 3. Check evidence and question-rubric alignment before writing the candidate to the assigned output path and running the exact validation command from the user prompt. The script checks format and document IDs; its success is not a semantic correctness verdict.
 4. Run the exact retrieval-probe command; it submits the question itself as a single search query. Treat document coverage as a diagnostic, not an acceptance gate. All supporting documents being retrieved does not establish that reasoning or synthesis is easy; a missing document does not establish that necessary information is missing. Never add peripheral requirements or hide the user goal just to change this diagnostic.
@@ -60,28 +60,32 @@ Before drafting the rubric, clarify three things:
 - **Scope:** What conditions or timeframe determine the answer? Put essential assumptions in the question.
 - **Required content:** Which conclusions, justification, and coverage dimensions does the requested breadth require? A broad answer can be factually correct but incomplete. Grade substantive omissions separately from factual contradictions; do not demand optional background or your preferred research path.
 
-Use this contract as a brief drafting check, without a separate record or output section. Every criterion must follow from it and allow equivalent correct explanations. Remove hidden requirements rather than expanding the question into a checklist. Recheck it when the question changes.
+Use this contract as a brief drafting check, without a separate record or output section. Every criterion must follow from it and allow equivalent correct explanations. Remove hidden requirements rather than expanding the question into a checklist. Recheck it when the question changes, including when you simplify the wording: remove criteria that no longer follow from the revised question rather than silently retaining the old checklist.
 
 ## Choose a question style to fit the evidence
 
-Choose one style yourself after exploring the anchor and its related evidence. No quota or random assignment applies. Briefly explain your choice in your session response; export its exact label in Question style. Preserve the choice during hardening. If the evidence cannot support it, explicitly reconsider the choice and rebuild the answer contract and rubric rather than silently changing the label or padding the task.
+Each assignment recommends a style to encourage a dataset mix of approximately 30% focused, 40% integrated, and 30% broad_synthesis. Treat that recommendation as your starting preference, not a mandatory output label or a quota to enforce. Explore a natural candidate in that style before considering alternatives. When multiple styles fit comparably well, prefer the recommendation; do not default to integrated merely because facts span multiple documents or connected entities. If the available facts cannot naturally support the recommendation, or another style clearly fits better, choose that other style without padding or discarding essential evidence. Briefly explain your choice in your session response, including the evidence-based reason for any departure from the recommendation; export the actual chosen label in Question style. Preserve the choice during hardening. If the evidence cannot support it, explicitly reconsider the choice and rebuild the answer contract and rubric rather than silently changing the label or padding the task.
 
 - **focused:** Choose when the evidence supports one meaningful conclusion, identification, or decision with a necessary justification. Sparse but decisive evidence, a confusable identity, or a conditional rule can suit this style. A focused question can still require difficult research across documents. Example: "Why did GitLab abandon its dedicated token-validation service?" Grade the decisive assumptions and reasons. Bad: appending a general account of background-worker architecture to make the rubric longer.
 - **integrated:** Choose when several connected aspects must be combined to explain one outcome, compare alternatives, or resolve a scenario. Look for real dependencies, not entities that merely share a page. Example: "How did self-managed support shape GitLab's token-validation architecture?" Grade the constraints, design response, and their connection. Bad: bundling license renewals, staffing, and unrelated security policy under one entity name.
-- **broad_synthesis:** Choose when the evidence supports a substantial, bounded account with several major developments, perspectives, causes, tradeoffs, or limitations. Prefer entities with coherent history or competing approaches and enough source context to explain relationships. Example: "Explain the evolution of GitLab's token-validation architecture and the tradeoffs behind its design." Grade distinct major coverage dimensions and their synthesis, allowing supported alternatives in examples and explanation. Bad: demanding every date, implementation symbol, or historical aside just because it appears in the graph.
+- **broad_synthesis:** Choose when the evidence supports a substantial, bounded account with several major developments, perspectives, causes, tradeoffs, or limitations. Prefer entities with coherent history or competing approaches and enough source context to explain relationships. Ask for one overarching account whose answer needs this breadth, not a sequence of separately requested facts or analyses. Example: "How did GitLab's token-validation architecture evolve?" Grade the major developments and relationships needed to explain that evolution, allowing supported alternatives in examples and explanation. Broad synthesis describes the breadth of the answer, not the complexity or length of the question. Bad: appending separate questions about every constraint, design change, tradeoff, and historical comparison, or demanding every date and implementation symbol in the rubric.
 
-Breadth, wording length, criterion count, and research difficulty are independent. Do not prefer focused simply because its rubric is easier to verify. Do not choose broad_synthesis solely because the entity has many facts. Broad questions need a recognizable topic and appropriate temporal/organizational scope, but do not need to enumerate every expected coverage dimension. Use as many non-redundant criteria as substantive coverage warrants, without a target count. Do not turn a focused question into broad synthesis merely because the solver succeeds.
+Breadth, wording length, criterion count, and research difficulty are independent. Do not prefer focused simply because its rubric is easier to verify. Do not choose broad_synthesis solely because the entity has many facts. Broad questions need a recognizable topic and appropriate temporal/organizational scope. Express that scope compactly and leave the answer's organization to the solver; do not enumerate the expected coverage dimensions. Prefer one direct interrogative or instruction with minimal setup. Do not use a rigid word limit or remove essential scope merely to shorten the question. Use as many non-redundant criteria as substantive coverage warrants, without a target count. Do not turn a focused question into broad synthesis merely because the solver succeeds.
 
 ## Question style: hide the search path, preserve the requested outcome
 
 - State one coherent user goal, not its decomposition or search plan. Do not enumerate intermediate entities, milestones, or expected facts. Include dates, scenario conditions, or comparison dimensions when they determine the answer, without revealing the solution path.
 - Bad (over-specified; it hands the solver its search plan): "How did Bell Labs' semiconductor group serve as a nexus among William Shockley, John Bardeen, and Walter Brattain: what were Bardeen's and Brattain's respective roles in the December 1947 point-contact experiment; what two surface-physics insights did Bardeen contribute in late 1947; how did Shockley's 1948 junction design differ from the point-contact device; and how did the patent filings and the 1956 Nobel award each reflect the dispute over credit?"
 - Better: "Why did the invention of the transistor at Bell Labs turn into a fight over credit?" It states the explanatory goal and leaves the solver to discover the people, events, technical differences, and evidence path. Its rubric should require the evidence-backed explanation of the credit dispute and the justification needed to establish it, not every named event or detail from the over-specified version. Exact patent dates, a fixed number of technical insights, or a particular award detail are not mandatory merely because the graph contains them.
+- For broad synthesis, collapse chains such as "how did X evolve, how did its scale vary, and how did it compare with predecessors?" into one overarching explanatory goal. A single sentence or question mark does not make several independent requests one question. Retain a comparison dimension only when it defines the central user goal, not to guarantee a particular rubric item.
+- Bad (broad synthesis written as an answer outline): "Starting from the 1962 anniversary, how did Elizabeth II's jubilees evolve, how did their scale and character vary, and how did they follow or break earlier monarchs' precedents?"
+- Better, for an Elizabeth II anchor: "How did Elizabeth II's jubilees reflect the changing character of her reign?" Its rubric should cover a supported account of the changing celebrations and their context, allowing different sufficient examples. It must not automatically require every jubilee, an exact audience figure, or comparisons with earlier monarchs. This is not a suitable way to keep Mary Gillick as the anchor merely by mentioning her coin portrait in a preamble.
+- After drafting and after each hardening step, check whether the question reads like a natural request or a compressed outline of the intended answer. If it is an outline, rewrite it around one goal and rebuild the answer contract and rubric to match; do not preserve removed subquestions as hidden grading requirements.
 - Keep questions natural. Difficulty must come from search and reasoning, not linguistic clutter.
 - When uniqueness survives, hide intermediate entities behind relational descriptions such as "the gallery that first exhibited...". Name only the entities a real user would plausibly know.
 - A concise question can support an explicit rubric without hiding its requirements. If materially different interpretations lead to different conclusions, clarify the scope naturally or discard the candidate. Accept different sufficient explanations and evidence paths within that scope.
 - Never use unanchored relative time such as "current", "latest", or "most recent". Anchor time explicitly ("as of 2019") or relationally ("the CEO who succeeded X").
-- Keep the assigned entity as the anchor. The complete answer must require synthesis across multiple documents; no single document may contain it all.
+- Keep the assigned entity central to the requested explanation, not merely an opening clue or a bridge to a broader neighboring topic. If broad synthesis requires leaving the anchor behind, reconsider the recommended style and choose a natural task supported by the anchor's evidence. The complete answer must require synthesis across multiple documents; no single document may contain it all.
 - Never mention the fact graph, files, rubric, tools, or document IDs in the question. Avoid trivial fact lists, one-fact paraphrases, contrived source requirements, and unnatural wording.
 
 ## Difficulty-evolution strategies
@@ -165,7 +169,7 @@ Write exactly this structure:
 
 # Question rubric
 Entity: the assigned entity name exactly as provided
-Question style: integrated
+Question style: <chosen_style>
 Evolution strategies: None
 
 ## Question
@@ -180,7 +184,7 @@ Docs: 456,789
 ## Docs
 123,456,789
 
-Replace `integrated` with your chosen label: `focused`, `integrated`, or `broad_synthesis`. For an evolved item, replace `None` with the retained strategy labels separated by commas. Number criteria consecutively. Keep every metadata value, question, criterion, and Docs value on a single line. Use comma-separated integers for Docs. Do not add fences, commentary, scores, or extra headings.
+Replace `<chosen_style>` with your actual chosen label: `focused`, `integrated`, or `broad_synthesis`. For an evolved item, replace `None` with the retained strategy labels separated by commas. Number criteria consecutively. Keep every metadata value, question, criterion, and Docs value on a single line. Use comma-separated integers for Docs. Do not add fences, commentary, scores, or extra headings.
 
 ## Completion
 
@@ -285,6 +289,9 @@ def build_question_rubric_user_prompt(
     lines = [
         f"Create one question-rubric record anchored on: {assignment.entity_fact.entity_name}",
         f"Write the Markdown document to exactly: {output_path}",
+        f"Recommended question style: {assignment.recommended_style}",
+        "Start by exploring this style. Prefer it when the evidence fits; switch to",
+        "another style if it clearly fits better, and explain why in your session response.",
     ]
     if previous_errors:
         lines.extend(
@@ -308,7 +315,7 @@ def build_question_rubric_user_prompt(
             '"$RAGENT_PYTHON_EXECUTABLE" retrieval_probe.py search "query one" "query two"',
             '"$RAGENT_PYTHON_EXECUTABLE" retrieval_probe.py read 123 456',
             "",
-            "Choose and record the question style that best fits the entity evidence.",
+            "Record the actual chosen style, which may differ from the recommendation.",
             "Validate and successfully probe every version before its solver rollout.",
             "Document coverage is diagnostic, not a difficulty gate.",
             "Do not modify scripts or audit files, and do not finish until the final",
