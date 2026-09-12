@@ -84,3 +84,17 @@ Apply safe lint fixes and formatting with:
 uv run ruff check --fix .
 uv run ruff format .
 ```
+
+Run the project regression suites and validate the environment configuration:
+
+```bash
+(cd ragent_core && uv run --locked pytest tests)
+(cd data_pipelines && uv run --locked pytest)
+(cd model_services && uv run --locked pytest)
+(cd environments/ragent_deep_search && uv run --locked --env-file .env eval @ evaluation.toml --dry-run)
+```
+
+Core, pipeline, and model-service tests use local fixtures and fake external
+adapters. The environment contract tests run with the pipeline suite, which
+installs both local packages. The evaluation dry-run validates configuration;
+real rollouts also require ready corpora and model credentials.

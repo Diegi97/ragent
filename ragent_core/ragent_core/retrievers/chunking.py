@@ -5,11 +5,11 @@ from typing import List, Sequence
 from chonkie import RecursiveChunker
 from tqdm.auto import tqdm
 
-from ragent_core.retrievers.document import Document
+from ragent_core.retrievers.document import DOCUMENT_ID_KEY, Document
 
 logger = logging.getLogger(__name__)
 
-DOCUMENT_ID_KEY = "document_id"
+
 TOKENIZER_NAME = "word"
 
 

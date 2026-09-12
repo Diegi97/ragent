@@ -2,6 +2,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from ragent_core.retrievers.settings import DEFAULT_LOGICAL_NAMESPACE
+
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 PROJECT_ROOT = PACKAGE_ROOT.parent
 
@@ -21,7 +23,7 @@ class RetrievalQueriesConfig(BaseModel):
     candidate_mining_top_k: int = Field(default=50, ge=1)
     contrastive_candidate_count: int = Field(default=25, ge=0)
     generator_model: str = GENERATOR_MODEL
-    logical_namespace: str = Field(default="default", min_length=1)
+    logical_namespace: str = Field(default=DEFAULT_LOGICAL_NAMESPACE, min_length=1)
     seed: int = 42
     llm_concurrency: int = Field(default=4, ge=1)
     retriever_concurrency: int = Field(default=2, ge=1)

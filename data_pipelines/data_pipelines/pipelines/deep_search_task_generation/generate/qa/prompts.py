@@ -1,6 +1,10 @@
 import re
+from collections.abc import Sequence
 
-from ragent_core.types import QA
+from data_pipelines.pipelines.deep_search_task_generation.facts import ExtractedFact
+from data_pipelines.pipelines.deep_search_task_generation.generate.qa.models import (
+    QA,
+)
 
 FACT_TO_QA_PROMPT = """You are generating a question-answer pair designed to train an LLM agent that autonomously navigates, retrieves, and synthesizes information from multiple interdependent sources. The QA pair must require agentic, multi-step search to resolve — it should NOT be answerable from a single document or through simple lookup.
 
@@ -118,3 +122,26 @@ def parse_fact_grounded_qas(text: str) -> list[QA]:
         qas.append(QA(question=question, answer=answer, doc_ids=doc_ids, info={}))
 
     return qas
+
+
+def format_facts(facts: Sequence[ExtractedFact]) -> str:
+    blocks: list[str] = []
+    for fact in facts:
+        lines = ["<fact>"]
+        if fact.fact_id > 0:
+            lines.append(f"<fact_id>{fact.fact_id}</fact_id>")
+        lines.extend(
+            [
+                f"<statement>{fact.statement}</statement>",
+                f"<doc_ids>{','.join(str(value) for value in fact.doc_ids)}</doc_ids>",
+            ]
+        )
+        if fact.mentioned_entities:
+            lines.append(
+                "<mentioned_entities>"
+                + ", ".join(fact.mentioned_entities)
+                + "</mentioned_entities>"
+            )
+        lines.append("</fact>")
+        blocks.append("\n".join(lines))
+    return "\n".join(blocks)

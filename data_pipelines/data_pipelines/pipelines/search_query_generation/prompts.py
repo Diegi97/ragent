@@ -2,7 +2,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Sequence
 from xml.sax.saxutils import escape, quoteattr
 
-from data_pipelines.pipelines.search_query_generation.models import RetrievalChunk
+from data_pipelines.artifacts.retrieval_queries import RetrievalChunk
 
 
 def build_generate_query_messages(

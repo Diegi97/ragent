@@ -7,10 +7,11 @@ import re
 from collections.abc import Sequence
 from typing import Any
 
-from ragent_core.retrievers.retriever import (
+from ragent_core.retrievers.settings import (
     DEFAULT_TURBOPUFFER_NAMESPACE_PREFIX,
-    create_turbopuffer_client,
+    NAMESPACE_PREFIX_ENV,
 )
+from ragent_core.retrievers.transport import create_turbopuffer_client
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--namespace-prefix",
         default=os.getenv(
-            "TURBOPUFFER_NAMESPACE_PREFIX",
+            NAMESPACE_PREFIX_ENV,
             DEFAULT_TURBOPUFFER_NAMESPACE_PREFIX,
         ),
         help="Required prefix for every target namespace.",

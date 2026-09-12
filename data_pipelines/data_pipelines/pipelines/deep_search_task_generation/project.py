@@ -1,11 +1,7 @@
 import os
-from datetime import datetime, timezone
 
 PROJECT_NAME = "deep-search-task-generation"
-
-
-def utc_timestamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+LLM_CONCURRENCY_LIMIT = "deep-search-tasks-openai-llm"
 
 
 def phoenix_project() -> str:

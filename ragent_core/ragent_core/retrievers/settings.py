@@ -1,0 +1,24 @@
+import os
+
+DEFAULT_EMBEDDING_MODEL_NAME = "microsoft/harrier-oss-v1-0.6b"
+DEFAULT_RERANKER_MODEL_NAME = "mixedbread-ai/mxbai-rerank-base-v2"
+
+DEFAULT_TURBOPUFFER_REGION = "gcp-us-central1"
+DEFAULT_TURBOPUFFER_NAMESPACE_PREFIX = "ragent"
+DEFAULT_LOGICAL_NAMESPACE = "default"
+TOP_RERANK = 50
+DEFAULT_RERANK_BATCH_SIZE = 8
+DEFAULT_RERANK_THRESHOLD = 0.0
+SCAN_PAGE_SIZE = 10_000
+
+DEFAULT_TOP_K = 50
+EMBEDDING_SERVICE_URL_ENV = "RAGENT_EMBEDDING_SERVICE_URL"
+RERANKER_SERVICE_URL_ENV = "RAGENT_RERANKER_SERVICE_URL"
+NAMESPACE_PREFIX_ENV = "TURBOPUFFER_NAMESPACE_PREFIX"
+REGION_ENV = "TURBOPUFFER_REGION"
+TURBOPUFFER_API_KEY_ENV = "TURBOPUFFER_API_KEY"
+
+
+def model_service_url(environment_variable: str) -> str | None:
+    value = os.getenv(environment_variable)
+    return value.strip() if value and value.strip() else None

@@ -1,19 +1,21 @@
 import hashlib
-import shutil
 import unicodedata
 from pathlib import Path
 from urllib.parse import quote
 
+from data_pipelines.pipelines.deep_search_task_generation.facts import (
+    EntityFactMemoryRecord,
+    ExtractedFact,
+)
+from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.audit_contract import (
+    AUDITS_DIRECTORY_NAME,
+)
 from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.models import (
     FactWorkspace,
 )
-from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.validation import (
-    validate_question_rubric_file,
+from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.validation.workspace import (
+    document_heading,
 )
-from data_pipelines.pipelines.deep_search_task_generation.models import (
-    EntityFactMemoryRecord,
-)
-from data_pipelines.pipelines.deep_search_task_generation.prompts import ExtractedFact
 
 
 def _bucket(entity_name: str) -> str:
@@ -52,9 +54,7 @@ def _entity_fact_markdown(entity_fact: EntityFactMemoryRecord) -> str:
     for fact in entity_fact.facts:
         facts_by_doc_ids.setdefault(tuple(fact.doc_ids), []).append(fact)
     for doc_ids, facts in facts_by_doc_ids.items():
-        heading = "Document" if len(doc_ids) == 1 else "Documents"
-        heading_doc_ids = ", ".join(str(value) for value in doc_ids)
-        lines.extend(["", f"### {heading} {heading_doc_ids}"])
+        lines.extend(["", document_heading(doc_ids)])
         for fact in facts:
             lines.append(f"- {_single_line(fact.statement)}")
             if fact.mentioned_entities:
@@ -89,7 +89,7 @@ def create_fact_workspace(
     directory = directory.resolve()
     facts_directory = directory / "facts"
     outputs_directory = directory / "outputs"
-    audits_directory = directory / ".difficulty_checks"
+    audits_directory = directory / AUDITS_DIRECTORY_NAME
     facts_directory.mkdir(parents=True, exist_ok=False)
     outputs_directory.mkdir(exist_ok=False)
     audits_directory.mkdir(exist_ok=False)
@@ -127,17 +127,23 @@ def create_fact_workspace(
         _entity_index_markdown(entity_paths),
         encoding="utf-8",
     )
-    validator_source = Path(validate_question_rubric_file.__code__.co_filename)
     validator = directory / "validate_question_rubric.py"
-    shutil.copy2(validator_source, validator)
-    validator.chmod(0o444)
-    scripts_directory = Path(__file__).resolve().parent
     retrieval_probe = directory / "retrieval_probe.py"
     solver = directory / "solve_question_rubric.py"
-    shutil.copy2(scripts_directory / "retrieval_probe.py", retrieval_probe)
-    shutil.copy2(scripts_directory / "solve_question_rubric.py", solver)
-    retrieval_probe.chmod(0o444)
-    solver.chmod(0o444)
+    for script, module in (
+        (validator, "validation.cli"),
+        (retrieval_probe, "retrieval_probe"),
+        (solver, "solver.cli"),
+    ):
+        script.write_text(
+            "import logging\n"
+            f"from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.{module} import main\n"
+            "logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')\n"
+            "if __name__ == '__main__':\n    raise SystemExit(main())\n",
+            encoding="utf-8",
+        )
+        # Pi may inspect these entrypoints but must not change its validation gates.
+        script.chmod(0o444)
     return FactWorkspace(
         directory=directory,
         facts_directory=facts_directory,

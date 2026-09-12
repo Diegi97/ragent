@@ -5,6 +5,7 @@ import threading
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any
 
 from opentelemetry import trace
@@ -12,6 +13,14 @@ from opentelemetry.trace import Span, Status, StatusCode
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 logger = logging.getLogger(__name__)
+
+
+class SpanKind(StrEnum):
+    CHAIN = "CHAIN"
+    LLM = "LLM"
+    RETRIEVER = "RETRIEVER"
+    AGENT = "AGENT"
+
 
 JSON_MIME_TYPE = "application/json"
 _runtime_lock = threading.Lock()
@@ -123,10 +132,6 @@ def configure_tracing(
         return runtime
 
 
-def get_tracing(project_name: str | None = None) -> TracingRuntime:
-    return configure_tracing(project_name=project_name)
-
-
 @contextmanager
 def object_trace(
     name: str,
@@ -134,11 +139,11 @@ def object_trace(
     attributes: Mapping[str, Any],
     project_name: str | None = None,
 ) -> Iterator[ObjectTrace]:
-    runtime = get_tracing(project_name)
+    runtime = configure_tracing(project_name=project_name)
     span = runtime.tracer.start_span(
         name,
         attributes={
-            "openinference.span.kind": "CHAIN",
+            "openinference.span.kind": SpanKind.CHAIN,
             **{key: value for key, value in attributes.items() if value is not None},
         },
     )
@@ -169,12 +174,12 @@ def object_trace(
 def stage_span(
     carrier: Mapping[str, str],
     name: str,
-    kind: str,
+    kind: SpanKind,
     input_value: Any,
     attributes: Mapping[str, Any] | None = None,
     project_name: str | None = None,
 ) -> Iterator[Span]:
-    runtime = get_tracing(project_name)
+    runtime = configure_tracing(project_name=project_name)
     parent_context = TraceContextTextMapPropagator().extract(carrier=carrier)
     span = runtime.tracer.start_span(
         name,
