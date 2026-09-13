@@ -73,13 +73,9 @@ def tracked_documents(repository: Path, revision: str) -> list[tuple[str, str]]:
     return sorted(documents)
 
 
-def document_id(relative_path: str) -> int:
-    """Stable positive int64 IDs, independent of file ordering or corpus subsets."""
-    digest = hashlib.sha256(f"{DMS_PATH}/{relative_path}".encode()).digest()
-    return (int.from_bytes(digest[:8], "big") & ((1 << 63) - 1)) or 1
-
-
-def normalize_document(relative_path: str, content: str, revision: str) -> dict:
+def normalize_document(
+    relative_path: str, content: str, revision: str, doc_id: int
+) -> dict:
     path = PurePosixPath(relative_path)
     matter_id = path.parts[1]
     title = f"{matter_id} / {path.stem.replace('-', ' ').replace('_', ' ')}"
@@ -88,7 +84,7 @@ def normalize_document(relative_path: str, content: str, revision: str) -> dict:
         f"{quote(DMS_PATH + '/' + relative_path, safe='/')}"
     )
     return {
-        "id": document_id(relative_path),
+        "id": doc_id,
         "title": title,
         "text": (
             f"# {title}\n\n"
@@ -131,7 +127,6 @@ def prepare_dataset(
         )
         counts: Counter[str] = Counter()
         matters: set[str] = set()
-        seen_ids: set[int] = set()
         lengths = []
         total_bytes = 0
         with (
@@ -157,10 +152,9 @@ def prepare_dataset(
                     content = extract_document(raw_path)
                 except Exception as exc:
                     raise ValueError(f"Cannot extract {relative_path}: {exc}") from exc
-                row = normalize_document(relative_path, content, revision)
-                if row["id"] in seen_ids:
-                    raise ValueError(f"Document ID collision for {relative_path}")
-                seen_ids.add(row["id"])
+                # Sequential IDs over the deterministic sorted document list,
+                # matching the scheme used by the other data sources.
+                row = normalize_document(relative_path, content, revision, index - 1)
                 normalized.write(json.dumps(row, ensure_ascii=False) + "\n")
                 word_count = len(row["text"].split())
                 matter = PurePosixPath(relative_path).parts[1]
@@ -218,7 +212,7 @@ def prepare_dataset(
             },
             "documents_over_8000_words": sum(length > 8000 for length in lengths),
             "length_filter_applied": False,
-            "id_scheme": "SHA-256 of repository-relative path, first 8 bytes masked to 63 bits; zero mapped to one",
+            "id_scheme": "Sequential integers starting at 0, ordered by repository-relative path",
             "extraction": "Text and tables; no OCR, image transcription, or formula recalculation",
             "schema_version": 1,
         }
