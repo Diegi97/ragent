@@ -444,7 +444,22 @@ def generate_deep_search_rubrics(
             seed=seed,
         )
     )
-    typer.echo(json.dumps(metadata, indent=2, ensure_ascii=False))
+    compact_summary = {
+        key: value for key, value in metadata.items() if key != "entity_summaries"
+    }
+    profile = dict(compact_summary["dataset_profile"])
+    profile["document_coverage"] = {
+        key: value
+        for key, value in profile["document_coverage"].items()
+        if key != "top_reused_documents"
+    }
+    profile["solver_audits"] = {
+        key: value
+        for key, value in profile["solver_audits"].items()
+        if key not in {"pass_rates_by_position", "pass_rates_by_normalized_criterion"}
+    }
+    compact_summary["dataset_profile"] = profile
+    typer.echo(json.dumps(compact_summary, indent=2, ensure_ascii=False))
 
 
 @evaluation_app.command("run")
