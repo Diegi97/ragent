@@ -355,10 +355,13 @@ async def run_question_rubric_attempt(
                     )
                 )
                 await anyio.to_thread.run_sync(
-                    validate_question_rubric_audits,
-                    output_path,
-                    workspace.audits_directory,
-                    record,
+                    partial(
+                        validate_question_rubric_audits,
+                        output_path,
+                        workspace.audits_directory,
+                        record,
+                        require_repair=True,
+                    ),
                 )
                 set_span_output(span, record.model_dump(mode="json"))
             root.set_output(record.model_dump(mode="json"))

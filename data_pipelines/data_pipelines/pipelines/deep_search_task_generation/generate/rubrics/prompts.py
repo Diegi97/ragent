@@ -32,7 +32,7 @@ Follow these Pi usage guidelines:
 - `entity_index.md` maps exact entity names to their Markdown fact files.
 - `facts/` holds the extracted fact graph: facts grouped under document-ID headings, optionally with `Mentions:` graph edges.
 - `outputs/` is the only directory where you may write candidate Markdown.
-- `validate_question_rubric.py`, `retrieval_probe.py`, and `solve_question_rubric.py` are read-only scripts. Never modify them.
+- `validate_question_rubric.py`, `retrieval_probe.py`, `solve_question_rubric.py`, and `repair_question_rubric.py` are read-only scripts. Never modify them.
 - `retrieval_probe.py search` searches the full configured corpus with up to three quoted queries.
 - `retrieval_probe.py read` fetches up to three corpus documents by integer ID. It is not Pi's filesystem `read` tool.
 
@@ -48,7 +48,13 @@ The current output validator permits only document IDs already present under doc
 4. Run the exact retrieval-probe command; it submits the question itself as a single search query. Treat document coverage as a diagnostic, not an acceptance gate. All supporting documents being retrieved does not establish that reasoning or synthesis is easy; a missing document does not establish that necessary information is missing. Never add peripheral requirements or hide the user goal just to change this diagnostic.
 5. After the probe completes successfully (`ok:true`), run the exact solver command, regardless of document coverage. Each call performs one solver rollout and returns the answer, cited IDs, judgments keyed by short IDs such as `C-001`, reasons, and the percentage of criteria passed.
 6. Read solver failures by type, run the correctness and uniqueness audit below, and decide whether the candidate matches the entity's attainable difficulty. If the solver found it too easy, apply exactly one strategy, update the question and answer contract together, and recheck the evidence and alignment of every affected requirement. Regenerate the affected criteria and document IDs, append the retained strategy to `Evolution strategies`, and restart at validation and retrieval probing. Preserve the chosen style during hardening; validate and successfully probe every rewritten version before solving it.
-7. Stop as soon as a stop condition fires. The final candidate must be exactly the version most recently validated, successfully probed, and solved; do not edit it afterward.
+7. Stop hardening as soon as a stop condition fires, then run the mandatory independent repair tool described below. It may rewrite the candidate. Validate, successfully probe, and solve the repaired version. Do not harden it merely because repair made its score higher. The final candidate must have a successful repair audit and matching validation, retrieval, and solver results; do not edit it afterward.
+
+## Mandatory final repair tool
+
+Keep track of the entity fact files you visit or use. Before submitting, run the exact repair command from the assignment, appending `--entity-file "facts/B/Related Entity.md"` for EACH additional visited/used entity file. The anchor's full fact file is included automatically. Use the real paths in entity_index.md, not guessed names. Repeated paths are deduplicated. The script fetches the candidate's full cited corpus documents, calls an independent repair model, and handles oversized evidence in chunks with a final reconciliation. It writes a repaired candidate only on successful completion and records its own audit.
+
+Read its diagnosis. `ok:false` means the repair is incomplete or rejected, not a successful repair. Resolve the stated issue and call the tool again, or abandon the candidate if evidence cannot support a repair. Never fabricate or edit repair audits. A failed tool call leaves the candidate unchanged. After `ok:true`, validate, probe, and solve the exact resulting file even if its text did not change. Any subsequent edit invalidates the repair audit and requires another repair call followed by validation, probe, and solver. Do not use the solver score to undo a correctness or alignment repair.
 
 Never mistake a probe, retrieval, solver, or judge infrastructure error for difficulty. Retry transient failures; if evaluation cannot complete, do not leave behind an apparently valid final record.
 
@@ -188,7 +194,7 @@ Replace `<chosen_style>` with your actual chosen label: `focused`, `integrated`,
 
 ## Completion
 
-Write only to the assigned output path. For every version, run the exact validation and retrieval-probe commands from the user prompt; run the solver after the probe completes with `ok:true`, regardless of document coverage. Fix all validation errors. Do not finish until the final candidate has matching successful probe and solver results. Never modify scripts, facts, the entity index, audit files, or another output file.
+Write only to the assigned output path. For every version, run the exact validation and retrieval-probe commands from the user prompt; run the solver after the probe completes with `ok:true`, regardless of document coverage. Fix all validation errors. Do not finish until the final candidate has matching successful repair, probe and solver results. Never modify scripts, facts, the entity index, audit files, or another output file.
 
 ## Script usage examples
 
@@ -311,6 +317,10 @@ def build_question_rubric_user_prompt(
             "# After the probe returns ok=true, regardless of document coverage:",
             f'"$RAGENT_PYTHON_EXECUTABLE" solve_question_rubric.py {output_path}',
             "",
+            "Mandatory final repair after hardening (append --entity-file for each additional visited entity):",
+            f'"$RAGENT_PYTHON_EXECUTABLE" repair_question_rubric.py {output_path}',
+            "Then rerun validation, probe and solver on the repaired file; do not harden it again.",
+            "",
             "For corpus-wide uniqueness checks:",
             '"$RAGENT_PYTHON_EXECUTABLE" retrieval_probe.py search "query one" "query two"',
             '"$RAGENT_PYTHON_EXECUTABLE" retrieval_probe.py read 123 456',
@@ -319,7 +329,7 @@ def build_question_rubric_user_prompt(
             "Validate and successfully probe every version before its solver rollout.",
             "Document coverage is diagnostic, not a difficulty gate.",
             "Do not modify scripts or audit files, and do not finish until the final",
-            "version has matching successful probe and solver audits.",
+            "version has matching successful repair, probe and solver audits.",
             "In your final answer, briefly summarize the outcome, the main steps and",
             "evolution strategies used, the final audit results, and any errors found,",
             "fixed, or left unresolved.",

@@ -138,6 +138,9 @@ def create_fact_workspace(
     shutil.copy2(scripts_directory / "solve_question_rubric.py", solver)
     retrieval_probe.chmod(0o444)
     solver.chmod(0o444)
+    repair = directory / "repair_question_rubric.py"
+    shutil.copy2(scripts_directory / "repair_question_rubric.py", repair)
+    repair.chmod(0o444)
     return FactWorkspace(
         directory=directory,
         facts_directory=facts_directory,

@@ -282,6 +282,8 @@ def validate_question_rubric_audits(
     path: Path,
     audits_directory: Path,
     record: QuestionRubricRecord,
+    *,
+    require_repair: bool = False,
 ) -> None:
     digest = question_rubric_sha256(path)
     audit_prefix = audits_directory / path.name
@@ -302,6 +304,22 @@ def validate_question_rubric_audits(
             raise ValueError(
                 f"{label} audit question does not match the final candidate"
             )
+
+    if require_repair:
+        repair = _load_audit(
+            audit_prefix.with_suffix(audit_prefix.suffix + ".repair.json"),
+            label="repair",
+        )
+        if repair.get("ok") is not True or repair.get("status") not in (
+            "keep",
+            "repair",
+        ):
+            raise ValueError("repair audit did not approve the candidate")
+        if (
+            repair.get("candidate_sha256") != digest
+            or repair.get("question") != record.question
+        ):
+            raise ValueError("repair audit does not match the final candidate")
 
     retrieval_doc_ids = retrieval.get("supporting_doc_ids")
     if retrieval_doc_ids != record.doc_ids:

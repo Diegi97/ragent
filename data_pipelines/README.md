@@ -146,6 +146,63 @@ without replacement.
 The retriever defaults to port `8765`;
 when overriding it, pass matching ports to `retriever` and `prepare`.
 
+### Independent rubric repair
+
+Each new rubric workspace includes the read-only `repair_question_rubric.py` tool.
+After difficulty calibration, Pi must call it before submitting the final item:
+
+```bash
+"$RAGENT_PYTHON_EXECUTABLE" repair_question_rubric.py outputs/question_rubric_000000.md \
+  --entity-file "facts/R/Related Entity.md"
+```
+
+The anchor's complete fact file is automatic. Pi must append `--entity-file` for
+**every additional visited/used entity**, using paths from `entity_index.md`.
+The script cannot automatically observe arbitrary shell file access. It deduplicates
+these files and fetches the complete documents cited by the candidate, without
+recursively fetching documents behind unrelated entity facts. An unavailable
+supporting document is an error, never silently omitted.
+
+The tool uses `AsyncOpenAI` and defaults to Fireworks at
+`https://api.fireworks.ai/inference/v1`, model
+`accounts/fireworks/models/deepseek-v4-flash-0731`. It reads `OPENAI_API_KEY` and
+`OPENAI_BASE_URL`; `FIREWORKS_API_KEY` is a fallback key. Set
+`RAGENT_REPAIR_API_KEY`, `RAGENT_REPAIR_BASE_URL`, or `RAGENT_REPAIR_MODEL` for
+repair-specific overrides. The selected endpoint must support chat completions
+with JSON-object response format. Configuration is captured before loading the
+retrieval environment, so its credentials cannot overwrite repair settings.
+
+`RAGENT_REPAIR_CONTEXT_TOKENS` defaults to 500,000: configure it for the endpoint's
+actual combined context limit. Input is capped at the smaller of 500,000,
+`RAGENT_REPAIR_MAX_INPUT_TOKENS`, and context minus the output reserve and 2,048-token
+safety margin. Token estimates use `o200k_base` with 20% padding, not the provider's
+exact tokenizer; reduce the configured budget if the endpoint rejects context size.
+`RAGENT_REPAIR_MAX_OUTPUT_TOKENS` defaults to 8,192,
+`RAGENT_REPAIR_LEDGER_TOKENS` to 6,000, and `RAGENT_REPAIR_MAX_CALLS` to 32.
+
+Oversized evidence is partitioned at document/paragraph boundaries (with lossless
+fragments when a paragraph itself is too large). Calls carry a bounded diagnosis,
+provisional Markdown, and original source excerpts checked against the input.
+A final reconciliation sees accumulated evidence and diagnoses. Excessive ledgers,
+call counts, truncated/invalid responses, and unsupported citations fail explicitly;
+the original candidate remains intact until the complete repair succeeds.
+The repairer can remove irrelevant requirements, repair supported errors, or reject
+an unresolved item. New citations are restricted to documents fetched for this review;
+the generator must add and verify other evidence before requesting a new repair.
+
+The tool returns JSON with `ok`, decision and diagnosis. Add `--dry-run` to fetch
+and size inputs without calling the LLM. It still needs corpus access and provider
+configuration. Full inputs, original/repaired Markdown, per-call diagnoses and usage
+are retained under `.difficulty_checks/repairs/`. The compact `.repair.json` audit
+records input hashes and the approved candidate hash. Failed calls invalidate any
+previous repair approval; rejection leaves the original candidate untouched.
+
+After success, Pi must validate, probe and solve the repaired candidate again. The
+pipeline rejects submission unless repair, retrieval and solver audits match the
+final file. Any later edit requires another repair. A higher post-repair solver score
+is not a reason to undo an alignment fix or restart hardening. Historical audit
+readers remain compatible with older runs that lack repair audits.
+
 ### Alternative: generate QA records
 
 ```bash

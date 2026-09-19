@@ -1030,6 +1030,7 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "ragent-core" },
     { name = "ragent-deep-search" },
+    { name = "tiktoken" },
     { name = "typer" },
 ]
 
@@ -1056,6 +1057,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.1.0" },
     { name = "ragent-core", editable = "../ragent_core" },
     { name = "ragent-deep-search", editable = "../environments/ragent_deep_search" },
+    { name = "tiktoken", specifier = ">=0.13.0" },
     { name = "typer", specifier = ">=0.16.0" },
 ]
 
