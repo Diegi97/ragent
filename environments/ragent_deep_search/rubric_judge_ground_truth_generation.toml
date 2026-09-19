@@ -1,6 +1,6 @@
 # Generate retrieval-assisted answers and criterion-at-a-time teacher labels.
 # Verifiers shuffles with its fixed seed (0), so this selects a reproducible subset.
-model = "deepseek/deepseek-v4-flash-0731"
+model = "deepseek/deepseek-v4.1-flash"
 num_tasks = 50
 num_rollouts = 1
 shuffle = true

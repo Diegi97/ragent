@@ -383,6 +383,31 @@ def generate_deep_search_rubrics(
             ),
         ),
     ] = DEFAULT_SOLVER_MODEL,
+    repair: Annotated[
+        bool,
+        typer.Option(
+            "--repair", "-r", help="Run independent repair feedback after hardening."
+        ),
+    ] = False,
+    repair_model: Annotated[
+        str,
+        typer.Option("--repair-model", "-rm", help="Independent repair model."),
+    ] = "accounts/fireworks/models/deepseek-v4p1-flash",
+    repair_reasoning_effort: Annotated[
+        str,
+        typer.Option(
+            "--repair-reasoning-effort", "-re", help="Repair model reasoning effort."
+        ),
+    ] = "high",
+    repair_max_tokens: Annotated[
+        int,
+        typer.Option(
+            "--repair-max-tokens",
+            "-rt",
+            min=1,
+            help="Skip repair above this estimated input token count.",
+        ),
+    ] = 500_000,
     thinking: Annotated[
         PiThinkingLevel | None,
         typer.Option(
@@ -436,6 +461,10 @@ def generate_deep_search_rubrics(
             prepare_run_directory=prepare_run_directory,
             model=model,
             solver_model=solver_model,
+            repair=repair,
+            repair_model=repair_model,
+            repair_reasoning_effort=repair_reasoning_effort,
+            repair_max_tokens=repair_max_tokens,
             thinking=thinking.value if thinking is not None else None,
             num_question_rubrics=num_question_rubrics,
             pi_concurrency=pi_concurrency,

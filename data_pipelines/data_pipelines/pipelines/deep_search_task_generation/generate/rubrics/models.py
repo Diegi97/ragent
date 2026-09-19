@@ -10,8 +10,8 @@ from data_pipelines.pipelines.deep_search_task_generation.models import (
     EntityFactMemoryRecord,
 )
 
-DEFAULT_PI_MODEL = "accounts/fireworks/models/deepseek-v4-flash-0731"
-DEFAULT_SOLVER_MODEL = "deepseek/deepseek-v4-flash-0731"
+DEFAULT_PI_MODEL = "accounts/fireworks/models/deepseek-v4p1-flash"
+DEFAULT_SOLVER_MODEL = "deepseek/deepseek-v4.1-flash"
 
 
 class PiThinkingLevel(str, Enum):

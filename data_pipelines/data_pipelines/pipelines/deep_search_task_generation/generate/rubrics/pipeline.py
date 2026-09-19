@@ -36,6 +36,10 @@ from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.promp
     QUESTION_RUBRIC_AGENT_SYSTEM_PROMPT,
     build_question_rubric_user_prompt,
 )
+from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.repair_question_rubric import (
+    DEFAULT_REPAIR_MAX_TOKENS,
+    DEFAULT_REPAIR_MODEL,
+)
 from data_pipelines.pipelines.deep_search_task_generation.generate.rubrics.validation import (
     validate_question_rubric_audits,
     validate_question_rubric_file,
@@ -294,13 +298,24 @@ async def run_question_rubric_attempt(
     thinking: str | None,
     workspace: FactWorkspace,
     sessions_directory: Path,
+    repair: bool = False,
+    repair_model: str = DEFAULT_REPAIR_MODEL,
+    repair_reasoning_effort: str = "high",
+    repair_max_tokens: int = DEFAULT_REPAIR_MAX_TOKENS,
 ) -> QuestionRubricAttempt:
     output_path = workspace.outputs_directory / assignment.filename
     output_path.unlink(missing_ok=True)
+    (workspace.audits_directory / f"{assignment.filename}.repair.json").unlink(
+        missing_ok=True
+    )
     prompt = build_question_rubric_user_prompt(
         assignment,
         attempt=attempt,
         previous_errors=previous_errors,
+        repair=repair,
+        repair_model=repair_model,
+        repair_reasoning_effort=repair_reasoning_effort,
+        repair_max_tokens=repair_max_tokens,
     )
     with object_trace(
         f"question-rubric-{assignment.slot}-{assignment.entity_fact.entity_name}",
@@ -360,7 +375,7 @@ async def run_question_rubric_attempt(
                         output_path,
                         workspace.audits_directory,
                         record,
-                        require_repair=True,
+                        require_repair=repair,
                     ),
                 )
                 set_span_output(span, record.model_dump(mode="json"))
@@ -391,6 +406,10 @@ async def generate_question_rubrics(
     paths: RubricFinalizePaths,
     pi_concurrency: int,
     logger: Any,
+    repair: bool = False,
+    repair_model: str = DEFAULT_REPAIR_MODEL,
+    repair_reasoning_effort: str = "high",
+    repair_max_tokens: int = DEFAULT_REPAIR_MAX_TOKENS,
 ) -> tuple[
     dict[int, QuestionRubricRecord],
     dict[int, list[str]],
@@ -411,6 +430,10 @@ async def generate_question_rubrics(
                 assignment,
                 attempt=attempt,
                 previous_errors=errors[assignment.slot],
+                repair=repair,
+                repair_model=repair_model,
+                repair_reasoning_effort=repair_reasoning_effort,
+                repair_max_tokens=repair_max_tokens,
                 model=model,
                 solver_model=solver_model,
                 thinking=thinking,
@@ -537,6 +560,15 @@ def _entity_summaries(
     ]
 
 
+def _repair_token_limit_skip_count(workspace: Path) -> int:
+    return sum(
+        read_json(path).get("status") == "skipped_max_tokens"
+        for path in (workspace / ".difficulty_checks" / "repairs").glob(
+            "*/*/result.json"
+        )
+    )
+
+
 def _paths_metadata(paths: RubricFinalizePaths) -> dict[str, str]:
     return {
         "rubric_finalize_run_directory": str(paths.directory),
@@ -565,7 +597,15 @@ async def generate_deep_search_rubrics_flow(
     max_attempts: int = 4,
     random_entities: bool = False,
     seed: int = 0,
+    repair: bool = False,
+    repair_model: str = DEFAULT_REPAIR_MODEL,
+    repair_reasoning_effort: str = "high",
+    repair_max_tokens: int = DEFAULT_REPAIR_MAX_TOKENS,
 ) -> dict[str, Any]:
+    if repair_max_tokens <= 0:
+        raise ValueError("Repair max tokens must be positive")
+    if not repair_model.strip() or not repair_reasoning_effort.strip():
+        raise ValueError("Repair model and reasoning effort must not be empty")
     model, solver_model, thinking = _validate_runtime_parameters(
         model,
         solver_model,
@@ -632,6 +672,10 @@ async def generate_deep_search_rubrics_flow(
             )
             accepted, errors, trace_ids = await generate_question_rubrics(
                 assignments,
+                repair=repair,
+                repair_model=repair_model,
+                repair_reasoning_effort=repair_reasoning_effort,
+                repair_max_tokens=repair_max_tokens,
                 model=model,
                 solver_model=solver_model,
                 thinking=thinking,
@@ -678,6 +722,10 @@ async def generate_deep_search_rubrics_flow(
                 "rubric_finalize_config": {
                     "model": model,
                     "solver_model": solver_model,
+                    "repair": repair,
+                    "repair_model": repair_model,
+                    "repair_reasoning_effort": repair_reasoning_effort,
+                    "repair_max_tokens": repair_max_tokens,
                     "thinking": thinking,
                     "num_question_rubrics": num_question_rubrics,
                     "pi_concurrency": pi_concurrency,
@@ -693,6 +741,9 @@ async def generate_deep_search_rubrics_flow(
                 },
                 "failed_stage": stage,
                 "error": error,
+                "repair_token_limit_skip_count": _repair_token_limit_skip_count(
+                    paths.workspace_directory
+                ),
                 "paths": _paths_metadata(paths),
             },
         )
@@ -722,6 +773,10 @@ async def generate_deep_search_rubrics_flow(
         "rubric_finalize_config": {
             "model": model,
             "solver_model": solver_model,
+            "repair": repair,
+            "repair_model": repair_model,
+            "repair_reasoning_effort": repair_reasoning_effort,
+            "repair_max_tokens": repair_max_tokens,
             "thinking": thinking,
             "num_question_rubrics": num_question_rubrics,
             "pi_concurrency": pi_concurrency,
@@ -749,6 +804,9 @@ async def generate_deep_search_rubrics_flow(
             assignments,
             accepted,
             paths.workspace_directory / ".difficulty_checks",
+        ),
+        "repair_token_limit_skip_count": _repair_token_limit_skip_count(
+            paths.workspace_directory
         ),
         "paths": _paths_metadata(paths),
     }

@@ -311,15 +311,12 @@ def validate_question_rubric_audits(
             label="repair",
         )
         if repair.get("ok") is not True or repair.get("status") not in (
-            "keep",
-            "repair",
+            "reviewed",
+            "skipped_max_tokens",
+            "skipped_error",
         ):
-            raise ValueError("repair audit did not approve the candidate")
-        if (
-            repair.get("candidate_sha256") != digest
-            or repair.get("question") != record.question
-        ):
-            raise ValueError("repair audit does not match the final candidate")
+            raise ValueError("repair review did not complete or record a skip")
+        # Feedback precedes generator edits, so its input hash need not match the final file.
 
     retrieval_doc_ids = retrieval.get("supporting_doc_ids")
     if retrieval_doc_ids != record.doc_ids:

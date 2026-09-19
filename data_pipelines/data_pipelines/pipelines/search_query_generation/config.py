@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 PACKAGE_ROOT = Path(__file__).resolve().parents[2]
 PROJECT_ROOT = PACKAGE_ROOT.parent
 
-GENERATOR_MODEL = "accounts/fireworks/models/deepseek-v4-flash-0731"
+GENERATOR_MODEL = "accounts/fireworks/models/deepseek-v4p1-flash"
 
 
 class RetrievalQueriesConfig(BaseModel):

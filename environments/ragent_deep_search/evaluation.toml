@@ -1,4 +1,4 @@
-model = "deepseek/deepseek-v4-flash-0731"
+model = "deepseek/deepseek-v4.1-flash"
 num_rollouts = 1
 max_concurrent = 5
 push = true
@@ -10,7 +10,7 @@ api_key_var = "OPENAI_API_KEY"
 
 [env.taskset]
 id = "ragent_deep_search"
-dataset_path = "diegi97/ragent-rubrics"
+dataset_path = "../../data_pipelines/data/entity_fact_qa/browsecomp_plus_corpus_20260719T160440Z_5000e_2f4a9241/rubric_finalize_20260919T115809Z_7880dba2/question_rubrics.jsonl"
 split = "test"
 
 [env.taskset.tools]
@@ -20,8 +20,8 @@ retrieval_mode = "bm25"
 env_file = ".env"
 
 [env.taskset.task.judge]
-model = "deepseek/deepseek-v4-flash-0731"
-max_criteria = 15
+model = "deepseek/deepseek-v4.1-flash"
+max_criteria = 8
 
 [env.agent.harness]
 id = "null"
