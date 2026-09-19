@@ -20,8 +20,10 @@ retrieval_mode = "bm25"
 env_file = ".env"
 
 [env.taskset.task.judge]
-model = "deepseek/deepseek-v4-flash-0731"
-max_criteria = 15
+model = "z-ai/glm-5.3-flash"
+base_url = "https://api.pinference.ai/api/v1"
+api_key_var = "PRIME_API_KEY"
+max_criteria = 8
 
 [env.agent.harness]
 id = "null"
