@@ -238,14 +238,14 @@ DATA_PIPELINES_GCS_URI=gs://your-bucket/ragent/data-pipelines
 GCS_SERVICE_ACCOUNT=/absolute/path/to/service-account.json
 ```
 
-Preview and synchronize the complete `data/` directory:
+Preview and synchronize generated artifacts under `data/`:
 
 ```bash
 uv run python scripts/sync_data_gcs.py upload --dry-run
 uv run python scripts/sync_data_gcs.py upload
 ```
 
-Use `download` to restore data and `--keep-extra` to retain destination-only files. By default the script uses `gcloud storage rsync --delete-unmatched-destination-objects`, making the destination an exact mirror. The Google Cloud CLI must be installed.
+Use `download` to restore data and `--keep-extra` to retain destination-only files. By default the script uses `gcloud storage rsync --delete-unmatched-destination-objects`, making the non-excluded destination content an exact mirror. The Google Cloud CLI must be installed.
 
 ## Troubleshooting cancelled runs
 

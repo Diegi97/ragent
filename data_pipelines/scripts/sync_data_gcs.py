@@ -3,13 +3,13 @@
 
 The local ``data/`` directory is the source for uploads; the configured GCS
 prefix is the source for downloads. By default, ``gcloud storage rsync`` uses
-``--delete-unmatched-destination-objects`` to remove files from the destination
-that are not present in the source, producing an exact mirror. Pass
-``--keep-extra`` to disable that behavior.
+``--delete-unmatched-destination-objects`` to remove non-excluded files from
+the destination that are not present in the source, producing an exact mirror
+of the synchronized content. Pass ``--keep-extra`` to disable that behavior.
 
 Examples
 --------
-# From data_pipelines/, upload every generated artifact under data/:
+# From data_pipelines/, upload generated artifacts under data/:
 uv run python scripts/sync_data_gcs.py upload
 
 # Preview the changes first:
@@ -27,11 +27,16 @@ Set ``DATA_PIPELINES_GCS_URI`` to the destination prefix, for example
 Set ``GCS_SERVICE_ACCOUNT`` to a service-account JSON path if explicit service
 account activation is needed. Otherwise, the existing gcloud credentials are
 used. This script requires ``gcloud`` on ``PATH``.
+
+Directories named ``.difficulty_checks`` or ``facts`` are excluded from both
+uploads and downloads. The exclusion only matches complete path segments, so
+files such as ``entity_facts.jsonl`` are still synchronized.
 """
 
 import argparse
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -42,11 +47,21 @@ from dotenv import load_dotenv
 
 PROJECT_DIR = Path(__file__).resolve().parents[1]
 LOCAL_DATA_DIR = PROJECT_DIR / "data"
+EXCLUDED_DIRECTORY_NAMES = (".difficulty_checks", "facts")
 
 # Use this project's environment file even when invoked from the repository root.
 load_dotenv(PROJECT_DIR / ".env")
 
 logger = logging.getLogger(__name__)
+
+
+def _directory_exclude_regex(directory_names: tuple[str, ...]) -> str:
+    """Return an rsync regex matching complete directory path segments."""
+    alternatives = "|".join(re.escape(name) for name in directory_names)
+    return rf"(^|.*/)(?:{alternatives})(?:/.*|$)"
+
+
+RSYNC_EXCLUDE_REGEX = _directory_exclude_regex(EXCLUDED_DIRECTORY_NAMES)
 
 
 def _gcs_uri(cli_value: str | None) -> str:
@@ -103,6 +118,7 @@ def _rsync(
         destination,
         "--recursive",
         "--no-ignore-symlinks",
+        f"--exclude={RSYNC_EXCLUDE_REGEX}",
     ]
     if delete:
         cmd.append("--delete-unmatched-destination-objects")
@@ -113,7 +129,7 @@ def _rsync(
 
 
 def upload(gcs_uri: str, *, delete: bool = True, dry_run: bool = False) -> None:
-    """Mirror the complete local data directory to GCS."""
+    """Mirror non-excluded local data to GCS."""
     if not LOCAL_DATA_DIR.is_dir():
         raise FileNotFoundError(
             f"Local data directory does not exist: {LOCAL_DATA_DIR}"
@@ -126,17 +142,27 @@ def upload(gcs_uri: str, *, delete: bool = True, dry_run: bool = False) -> None:
     key_path = _service_account_path()
     _ensure_tools()
     _activate_service_account(key_path)
-    logger.info("Uploading all generated data: %s -> %s", LOCAL_DATA_DIR, gcs_uri)
+    logger.info(
+        "Uploading generated data, excluding %s: %s -> %s",
+        ", ".join(EXCLUDED_DIRECTORY_NAMES),
+        LOCAL_DATA_DIR,
+        gcs_uri,
+    )
     _rsync(str(LOCAL_DATA_DIR), gcs_uri, delete=delete, dry_run=dry_run)
 
 
 def download(gcs_uri: str, *, delete: bool = True, dry_run: bool = False) -> None:
-    """Mirror the complete GCS data prefix to the local data directory."""
+    """Mirror non-excluded GCS data to the local data directory."""
     key_path = _service_account_path()
     _ensure_tools()
     _activate_service_account(key_path)
     LOCAL_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    logger.info("Downloading all generated data: %s -> %s", gcs_uri, LOCAL_DATA_DIR)
+    logger.info(
+        "Downloading generated data, excluding %s: %s -> %s",
+        ", ".join(EXCLUDED_DIRECTORY_NAMES),
+        gcs_uri,
+        LOCAL_DATA_DIR,
+    )
     _rsync(gcs_uri, str(LOCAL_DATA_DIR), delete=delete, dry_run=dry_run)
 
 
