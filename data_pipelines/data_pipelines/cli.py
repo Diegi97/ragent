@@ -446,15 +446,26 @@ def generate_deep_search_rubrics(
             help="Select entities randomly without replacement.",
         ),
     ] = False,
+    fact_weighted_entities: Annotated[
+        bool,
+        typer.Option(
+            "--fact-weighted-entities",
+            help="Sample with replacement proportional to the square root of fact count; excludes --random-entities.",
+        ),
+    ] = False,
     seed: Annotated[
         int,
         typer.Option(
             "--seed",
-            help="Seed used for random entity selection.",
+            help="Seed used for random or fact-weighted entity selection.",
         ),
     ] = 0,
 ) -> None:
     """Generate question-rubric records with PI from extracted entity facts."""
+    if random_entities and fact_weighted_entities:
+        raise typer.BadParameter(
+            "--random-entities and --fact-weighted-entities are mutually exclusive"
+        )
     load_dotenv()
     metadata = asyncio.run(
         generate_deep_search_rubrics_flow(
@@ -471,6 +482,7 @@ def generate_deep_search_rubrics(
             max_attempts=max_attempts,
             random_entities=random_entities,
             seed=seed,
+            fact_weighted_entities=fact_weighted_entities,
         )
     )
     compact_summary = {

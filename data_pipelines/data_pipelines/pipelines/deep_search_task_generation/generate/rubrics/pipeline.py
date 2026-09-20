@@ -1,5 +1,6 @@
 import asyncio
 import json
+import math
 import os
 import random
 import signal
@@ -156,13 +157,24 @@ def build_question_rubric_assignments(
     *,
     random_entities: bool = False,
     seed: int = 0,
+    fact_weighted_entities: bool = False,
 ) -> list[QuestionRubricAssignment]:
     if num_question_rubrics < 0:
         raise ValueError("num_question_rubrics must be at least 0")
+    if random_entities and fact_weighted_entities:
+        raise ValueError(
+            "random_entities and fact_weighted_entities are mutually exclusive"
+        )
     usable = [record for record in entity_facts if record.facts]
     if not usable:
         return []
-    if random_entities:
+    if fact_weighted_entities:
+        selected = random.Random(seed).choices(
+            usable,
+            weights=[math.sqrt(len(record.facts)) for record in usable],
+            k=num_question_rubrics,
+        )
+    elif random_entities:
         if num_question_rubrics > len(usable):
             raise ValueError(
                 "random entity selection without replacement requires at least "
@@ -601,7 +613,12 @@ async def generate_deep_search_rubrics_flow(
     repair_model: str = DEFAULT_REPAIR_MODEL,
     repair_reasoning_effort: str = "high",
     repair_max_tokens: int = DEFAULT_REPAIR_MAX_TOKENS,
+    fact_weighted_entities: bool = False,
 ) -> dict[str, Any]:
+    if random_entities and fact_weighted_entities:
+        raise ValueError(
+            "random_entities and fact_weighted_entities are mutually exclusive"
+        )
     if repair_max_tokens <= 0:
         raise ValueError("Repair max tokens must be positive")
     if not repair_model.strip() or not repair_reasoning_effort.strip():
@@ -646,13 +663,15 @@ async def generate_deep_search_rubrics_flow(
             num_question_rubrics,
             random_entities=random_entities,
             seed=seed,
+            fact_weighted_entities=fact_weighted_entities,
         )
         logger.info(
             "Rubric assignments ready: requested=%s assigned=%s "
-            "random_entities=%s seed=%s pi_concurrency=%s",
+            "random_entities=%s fact_weighted_entities=%s seed=%s pi_concurrency=%s",
             num_question_rubrics,
             len(assignments),
             random_entities,
+            fact_weighted_entities,
             seed,
             pi_concurrency,
         )
@@ -731,6 +750,7 @@ async def generate_deep_search_rubrics_flow(
                     "pi_concurrency": pi_concurrency,
                     "max_attempts": max_attempts,
                     "random_entities": random_entities,
+                    "fact_weighted_entities": fact_weighted_entities,
                     "seed": seed,
                 },
                 "fireworks": {
@@ -782,6 +802,7 @@ async def generate_deep_search_rubrics_flow(
             "pi_concurrency": pi_concurrency,
             "max_attempts": max_attempts,
             "random_entities": random_entities,
+            "fact_weighted_entities": fact_weighted_entities,
             "seed": seed,
         },
         "fireworks": {

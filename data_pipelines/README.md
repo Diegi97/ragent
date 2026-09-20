@@ -142,9 +142,11 @@ Pi and the `pi-phoenix` package must be installed and configured in the environm
 
 By default, the requested rubric count is distributed round-robin over the prepared
 entities. Pass `--random-entities --seed 42` to sample entities reproducibly
-without replacement.
-The retriever defaults to port `8765`;
-when overriding it, pass matching ports to `retriever` and `prepare`.
+without replacement. Alternatively, pass `--fact-weighted-entities --seed 42` to
+sample with replacement, with probability proportional to the square root of each
+entity’s extracted fact count.This assigns more rubrics on average to entities with more facts and allows requesting more rubrics than usable entities.
+
+The retriever defaults to port `8765`; when overriding it, pass matching ports to `retriever` and `prepare`.
 
 ### Alternative: generate QA records
 
