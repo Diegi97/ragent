@@ -1,5 +1,7 @@
 import json
+import re
 from collections.abc import Mapping, Sequence
+from html import unescape
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +26,7 @@ def parse_batch_output_files(
     file_paths: Sequence[Path],
 ) -> tuple[dict[str, str], ParseDiagnostics]:
     responses: dict[str, str] = {}
+    seen_custom_ids: set[str] = set()
     diagnostics = ParseDiagnostics()
     for path in file_paths:
         with path.open(encoding="utf-8") as fp:
@@ -59,6 +62,9 @@ def parse_batch_output_files(
                     diagnostics.missing_custom_ids += 1
                     continue
                 custom_id = str(custom_id)
+                if custom_id in seen_custom_ids:
+                    diagnostics.duplicate_custom_ids += 1
+                seen_custom_ids.add(custom_id)
                 response = record.get("response") or {}
                 choices = (
                     response.get("choices") or []
@@ -76,14 +82,37 @@ def parse_batch_output_files(
                         }
                     )
                     continue
-                if custom_id in responses:
-                    diagnostics.duplicate_custom_ids += 1
+                if first_choice.get("finish_reason") == "length":
+                    diagnostics.truncated_responses += 1
+                    diagnostics.failures.append(
+                        {
+                            "stage": "batch_output_parsing",
+                            "file": str(path),
+                            "line": line_number,
+                            "custom_id": custom_id,
+                            "finish_reason": "length",
+                            "retryable": True,
+                            "error": "Fact extraction hit the output token limit; "
+                            "retry this request with a larger output budget or "
+                            "fewer passages. Partial facts were excluded.",
+                        }
+                    )
+                    continue
                 message = first_choice.get("message") or {}
                 responses[custom_id] = (
                     str(message.get("content") or "")
                     if isinstance(message, Mapping)
                     else ""
                 )
+    # Count truncated attempts, but only request retries for unresolved IDs.
+    diagnostics.failures = [
+        failure
+        for failure in diagnostics.failures
+        if not (
+            failure.get("finish_reason") == "length"
+            and failure.get("custom_id") in responses
+        )
+    ]
     return responses, diagnostics
 
 
@@ -106,8 +135,27 @@ def load_batch_input_metadata(path: Path) -> dict[str, dict[str, Any]]:
                     "data_source": record.get("data_source"),
                     "doc_ids": record.get("doc_ids") or [],
                     "chunk_ids": record.get("chunk_ids") or [],
+                    "linked_entities": _request_linked_entities(record),
                 }
     return metadata
+
+
+def _request_linked_entities(record: Mapping[str, Any]) -> list[str] | None:
+    """Recover the allowlist from saved requests, including legacy batches."""
+    for message in (record.get("body") or {}).get("messages") or []:
+        content = message.get("content")
+        if not isinstance(content, str):
+            continue
+        # The actual list follows the passages, which can themselves contain
+        # example tags. Ignore inline mentions and use the last standalone block.
+        matches = re.findall(
+            r"^<entities>[ \t]*\n(.*?)^</entities>[ \t]*$",
+            content,
+            re.MULTILINE | re.DOTALL,
+        )
+        if matches:
+            return [name.strip() for name in matches[-1].splitlines() if name.strip()]
+    return None
 
 
 def build_entity_facts_from_batch_output(
@@ -129,7 +177,7 @@ def build_entity_facts_from_batch_output(
                 }
             )
             continue
-        entity_name = str(metadata.get("entity_name") or "").strip()
+        entity_name = unescape(str(metadata.get("entity_name") or "")).strip()
         if not entity_name:
             diagnostics.failures.append(
                 {
@@ -148,7 +196,11 @@ def build_entity_facts_from_batch_output(
                 "statements": set(),
             },
         )
-        for fact in parse_extracted_facts(content, entity_name=entity_name):
+        for fact in parse_extracted_facts(
+            content,
+            entity_name=entity_name,
+            known_entities=metadata.get("linked_entities"),
+        ):
             key = " ".join(fact.statement.lower().split())
             if key and key not in current["statements"]:
                 current["statements"].add(key)

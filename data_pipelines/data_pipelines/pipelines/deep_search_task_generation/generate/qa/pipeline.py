@@ -4,6 +4,7 @@ from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
+from xml.sax.saxutils import escape
 
 import anyio
 from prefect import flow, task
@@ -91,14 +92,17 @@ def _format_facts(facts: Sequence[ExtractedFact]) -> str:
             lines.append(f"<fact_id>{fact.fact_id}</fact_id>")
         lines.extend(
             [
-                f"<statement>{fact.statement}</statement>",
+                f"<statement>{escape(fact.statement)}</statement>",
                 f"<doc_ids>{','.join(str(value) for value in fact.doc_ids)}</doc_ids>",
             ]
         )
         if fact.mentioned_entities:
             lines.append(
                 "<mentioned_entities>"
-                + ", ".join(fact.mentioned_entities)
+                + "".join(
+                    f"<entity>{escape(name)}</entity>"
+                    for name in fact.mentioned_entities
+                )
                 + "</mentioned_entities>"
             )
         lines.append("</fact>")

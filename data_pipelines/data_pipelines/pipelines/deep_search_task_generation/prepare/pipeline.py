@@ -4,6 +4,7 @@ import random
 import re
 from collections.abc import Iterable, Sequence
 from datetime import datetime, timezone
+from html import unescape
 from pathlib import Path
 from typing import Any
 
@@ -99,6 +100,7 @@ def load_entities_file(
                 if not isinstance(payload, dict):
                     raise TypeError("record must be a JSON object")
                 entity = Concept(**payload)
+                entity.name = unescape(entity.name).strip()
             except (json.JSONDecodeError, TypeError) as exc:
                 raise ValueError(
                     f"Invalid entity record at {path}:{line_number}: {exc}"

@@ -71,6 +71,7 @@ class ParseDiagnostics:
     missing_choices: int = 0
     unmatched_responses: int = 0
     duplicate_custom_ids: int = 0
+    truncated_responses: int = 0
     failures: list[dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -80,4 +81,5 @@ class ParseDiagnostics:
             "missing_choices": self.missing_choices,
             "unmatched_responses": self.unmatched_responses,
             "duplicate_custom_ids": self.duplicate_custom_ids,
+            "truncated_responses": self.truncated_responses,
         }

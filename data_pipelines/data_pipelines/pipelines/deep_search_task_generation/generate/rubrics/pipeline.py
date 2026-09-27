@@ -7,6 +7,7 @@ import signal
 import sys
 from collections import Counter
 from functools import partial
+from html import unescape
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -142,7 +143,7 @@ def order_entity_facts(
                 raise ValueError(
                     f"Entity record at line {line_number} is not a JSON object."
                 )
-            entity_name = str(value.get("name") or "").strip()
+            entity_name = unescape(str(value.get("name") or "")).strip()
             record = records_by_name.get(entity_name)
             if record is not None and entity_name not in seen:
                 ordered.append(record)

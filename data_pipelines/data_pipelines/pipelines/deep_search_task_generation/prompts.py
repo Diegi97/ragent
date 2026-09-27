@@ -1,6 +1,8 @@
 import logging
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
+from html import unescape
 
 from ragent_core.types import Concept
 
@@ -97,7 +99,7 @@ def parse_entities(text: str, data_source: str, doc_id: int) -> list[Concept]:
     matches = re.findall(pattern, text, re.DOTALL)
 
     for name_raw in matches:
-        name = name_raw.strip()
+        name = unescape(name_raw).strip()
         if not name:
             continue
 
@@ -116,7 +118,7 @@ FACT_EXTRACTION_PROMPT = """You will be extracting factual information from one 
 
 There are TWO distinct groups of entities in this task. Do not confuse them:
 
-- **Target entity**: "{ENTITY}". This is the main subject of the extraction. You extract facts that are *about* it — i.e. facts that describe, define, configure, parameterize, relate, or otherwise pertain to this entity. The target entity does **not** need to be named verbatim inside every fact statement (see rules below), because many facts about it appear as arguments, attributes, sub-blocks, or exported values of a resource/data-source whose subject *is* the target entity.
+- **Target entity**: "{ENTITY}". Extract facts about this specific entity. Retrieved passages may concern unrelated or similarly named entities.
 
 - **Linked entities**: the ones listed in the `<entities>` block below. These are *other* named entities that, together with the target entity, form the nodes of a knowledge graph. Your job is to surface every explicit connection between the target entity and these linked entities. Facts that connect the target entity to one or more linked entities are especially valuable — they are the cross-entity edges that downstream multi-hop reasoning depends on, so never drop them.
 
@@ -134,20 +136,21 @@ Here is the list of known linked entities (use these for the `mentioned_entities
 
 Extract ALL facts from these passages that are about the target entity "{ENTITY}", following these rules:
 
+**Identity check — apply before extracting any facts:**
+- Similar names or shared attributes do not establish identity. Do not assume typos, aliases, or equivalence.
+- Resolve abbreviations, pronouns, and generic labels only when the supplied context from the same source document clearly identifies the target. Do not transfer local definitions between documents.
+- For other entities, extract only explicit relationships with the target. Omit facts whose subject is uncertain; return `<facts></facts>` if none qualify.
+
 1. **Explicit statements only**: Extract only facts that are directly and explicitly stated in the passages. Do not infer, interpret, or use outside knowledge.
 
-2. **Inclusion criterion — "about the target entity"**: A fact qualifies if it is stated in a passage whose subject is the target entity, even when the target entity's name is not repeated in that particular sentence. Concretely, treat as facts about "{ENTITY}":
-   - The description/definition of a resource, data source, class, function, or page whose subject *is* the target entity.
-   - Any argument, attribute, parameter, property, configuration field, sub-block, exported value, or returned field of such a resource/data source, even if the bullet only names the field (e.g. "`disaster_recovery` - (Optional) Specify if an Oracle Data Guard configuration is created...").
-   - Any explicit relationship between the target entity and another named thing.
-   Do NOT require the literal string "{ENTITY}" to appear in the fact statement. The literal-name requirement applies only to `mentioned_entities` (rule 8), not to inclusion.
+2. **Inclusion criterion — "about the target entity"**: After the identity check passes, extract explicit descriptions, attributes, actions, obligations, and relationships of "{ENTITY}". The name need not be repeated in every sentence when its reference is unambiguous within the supplied same-document context. A document merely mentioning the target does not make every statement in that document a fact about it.
 
 3. **Preserve original relationships**: Write each fact exactly as the passage states it. Keep the original subject, verb, and object order. Do NOT rephrase a statement to make "{ENTITY}" the subject if it is not the subject in the source text.
    - Example — Source says "X extends Y's requirements" → Write "X extends Y's requirements", NOT "Y is extended by X" or "Y extends X's requirements".
    - Example — Source says "A reports to B" → Write "A reports to B", NOT "B is reported to by A".
-   - For arguments/attributes whose bullet describes the field, keep the field name in the statement (e.g. "The `disaster_recovery` argument specifies if an Oracle Data Guard configuration is created...") so the fact stays standalone and grounded.
+   - Resolve a pronoun or abbreviated name to a full name only when the same-document evidence establishes that identity. Never replace a different named subject with the target.
 
-4. **Standalone statements**: Each fact must be a short, complete statement that can be understood on its own without additional context. Use full entity names rather than pronouns.
+4. **Standalone statements**: Write short, complete statements using supported names and context. Preserve dates, conditions, and uncertainty. Do not guess missing context.
 
 5. **Exhaustive extraction**: Extract every relevant fact you can find. Do not summarize or combine multiple facts into one. Prefer more granular, atomic facts over broad summaries. When a passage lists many arguments/attributes of the target entity, extract one fact per argument/attribute rather than collapsing them.
 
@@ -158,6 +161,7 @@ Extract ALL facts from these passages that are about the target entity "{ENTITY}
 8. **Mentioned entities (knowledge-graph edges)**: For each fact, list the **linked entities** from the `<entities>` block above whose name (or a clear direct reference to it) **literally appears in the fact statement text**.
    - Do NOT include "{ENTITY}" (the target entity) itself — only list *other* entities.
    - Only include entities from the `<entities>` list above; copy their names exactly as written.
+   - Put each name in its own `<entity>` tag inside `<mentioned_entities>`. Commas may be part of a name; never use commas to separate entities.
    - "Literally appears" means the entity's name is present in the fact statement you wrote. If a fact statement mentions "Oracle Data Guard" and "Oracle Data Guard" is in the list, include it. If the fact statement does not name any linked entity, leave `<mentioned_entities>` empty.
    - Do NOT include entities that are merely related or co-occur in the same document but are not named in the fact statement.
    - These `mentioned_entities` are the cross-entity edges of the knowledge graph — prioritize surfacing facts that produce non-empty `mentioned_entities`, because they enable multi-hop questions that span documents.
@@ -168,7 +172,10 @@ Provide your final answer in the following XML format:
   <fact>
     <statement>fact statement</statement>
     <doc_ids>123,456</doc_ids>
-    <mentioned_entities>Entity One, Entity Two</mentioned_entities>
+    <mentioned_entities>
+      <entity>Example Company, Inc.</entity>
+      <entity>Entity Two</entity>
+    </mentioned_entities>
   </fact>
 </facts>
 
@@ -177,23 +184,73 @@ If no relevant facts can be extracted from the passages, return an empty <facts>
 Your final output should contain only the facts tags with the extracted information. Do not include your thinking process in the final answer."""
 
 
-def _parse_mentioned_entities(raw: str, exclude: str = "") -> list[str]:
-    exclude_key = exclude.strip().lower()
+def _parse_mentioned_entities(
+    raw: str,
+    exclude: str = "",
+    known_entities: Sequence[str] | None = None,
+) -> list[str]:
+    """Read entity tags, or recover legacy comma lists using request names.
+
+    Without a catalog a legacy comma list is ambiguous, so retain it as one
+    value rather than inventing entities from pieces of a legal name.
+    """
+    exclude_key = exclude.strip().casefold()
+    canonical = (
+        {
+            unescape(name).strip().casefold(): unescape(name).strip()
+            for name in known_entities
+            if name.strip()
+        }
+        if known_entities is not None
+        else None
+    )
+    tagged = re.findall(r"<entity>(.*?)</entity>", raw, re.DOTALL)
+    if tagged:
+        names = [unescape(name).strip() for name in tagged]
+    elif canonical is not None:
+        # Longest names win over prefixes such as "Pinnacle Trust Bank".
+        # Include the target so its comma-containing name is consumed whole
+        # before it is excluded below.
+        candidates = set(canonical.values())
+        if exclude:
+            candidates.add(exclude)
+        alternatives = "|".join(
+            re.escape(name) for name in sorted(candidates, key=lambda n: (-len(n), n))
+        )
+        names = (
+            re.findall(
+                rf"(?:^|,)\s*({alternatives})(?=\s*(?:,|$))",
+                unescape(raw).strip(),
+                re.IGNORECASE,
+            )
+            if alternatives
+            else []
+        )
+    else:
+        names = [unescape(raw).strip()]
+
     entities: list[str] = []
     seen: set[str] = set()
-    for part in raw.split(","):
-        name = part.strip()
+    for name in names:
         if not name:
             continue
-        key = name.lower()
+        key = name.casefold()
         if key in seen or key == exclude_key:
             continue
+        if canonical is not None:
+            if key not in canonical:
+                continue
+            name = canonical[key]
         seen.add(key)
         entities.append(name)
     return entities
 
 
-def parse_extracted_facts(text: str, entity_name: str = "") -> list[ExtractedFact]:
+def parse_extracted_facts(
+    text: str,
+    entity_name: str = "",
+    known_entities: Sequence[str] | None = None,
+) -> list[ExtractedFact]:
     fact_blocks = re.findall(r"<fact>(.*?)</fact>", text, re.DOTALL)
     facts: list[ExtractedFact] = []
     seen_statements: set[str] = set()
@@ -203,7 +260,7 @@ def parse_extracted_facts(text: str, entity_name: str = "") -> list[ExtractedFac
         if not statement_match:
             continue
 
-        statement = statement_match.group(1).strip()
+        statement = unescape(statement_match.group(1)).strip()
         if not statement:
             continue
 
@@ -221,7 +278,11 @@ def parse_extracted_facts(text: str, entity_name: str = "") -> list[ExtractedFac
             r"<mentioned_entities?>(.*?)</mentioned_entities?>", block, re.DOTALL
         )
         mentioned_entities = (
-            _parse_mentioned_entities(entities_match.group(1), exclude=entity_name)
+            _parse_mentioned_entities(
+                entities_match.group(1),
+                exclude=entity_name,
+                known_entities=known_entities,
+            )
             if entities_match
             else []
         )

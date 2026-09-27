@@ -44,6 +44,7 @@ SPLIT_NAMES = ("train", "test")
 QUESTION_RUBRIC_FEATURES = Features(
     {
         "entity": Value("string"),
+        "question_style": Value("string"),
         "evolution_strategies": List(Value("string")),
         "question": Value("string"),
         "rubric": List(
@@ -173,15 +174,21 @@ def _align_existing_split(dataset: Dataset, features: Features) -> Dataset:
     if "question_type" in actual_columns:
         dataset = dataset.remove_columns("question_type")
         actual_columns = set(dataset.column_names)
-    missing_columns = set(expected_columns).difference(actual_columns)
-    if missing_columns == {"evolution_strategies"}:
+    if "question_style" not in actual_columns:
+        dataset = dataset.add_column(
+            "question_style",
+            ["unknown"] * len(dataset),
+            feature=features["question_style"],
+        )
+        actual_columns.add("question_style")
+    if "evolution_strategies" not in actual_columns:
         dataset = dataset.add_column(
             "evolution_strategies",
             [[] for _ in range(len(dataset))],
             feature=features["evolution_strategies"],
         )
-        actual_columns = set(dataset.column_names)
-        missing_columns = set(expected_columns).difference(actual_columns)
+        actual_columns.add("evolution_strategies")
+    missing_columns = set(expected_columns).difference(actual_columns)
     extra_columns = actual_columns.difference(expected_columns)
     if missing_columns or extra_columns:
         details: list[str] = []
