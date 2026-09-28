@@ -118,7 +118,7 @@ FACT_EXTRACTION_PROMPT = """You will be extracting factual information from one 
 
 There are TWO distinct groups of entities in this task. Do not confuse them:
 
-- **Target entity**: "{ENTITY}". Extract facts about this specific entity. Retrieved passages may concern unrelated or similarly named entities.
+- **Target entity**: "{ENTITY}". This is the main subject of extraction: include facts that describe, define, configure, or relate to it. Its name need not appear verbatim in every fact; attributes, arguments, sub-blocks, and exported values qualify when the supplied same-document context clearly ties them to the target. Retrieved passages may concern unrelated or similarly named entities.
 
 - **Linked entities**: the ones listed in the `<entities>` block below. These are *other* named entities that, together with the target entity, form the nodes of a knowledge graph. Your job is to surface every explicit connection between the target entity and these linked entities. Facts that connect the target entity to one or more linked entities are especially valuable — they are the cross-entity edges that downstream multi-hop reasoning depends on, so never drop them.
 
