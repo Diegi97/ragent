@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -4374,7 +4374,6 @@ dependencies = [
     { name = "rapidfuzz" },
     { name = "renderers" },
     { name = "sentence-transformers" },
-    { name = "skypilot", extra = ["runpod"] },
     { name = "tiktoken" },
     { name = "transformers" },
     { name = "turbopuffer" },
@@ -4382,6 +4381,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+cloud = [
+    { name = "skypilot", extra = ["runpod"] },
+]
 cuda = [
     { name = "flash-attn", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
     { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
@@ -4413,7 +4415,7 @@ requires-dist = [
     { name = "rapidfuzz", specifier = ">=3.14.0" },
     { name = "renderers", specifier = ">=0.1.8.dev40" },
     { name = "sentence-transformers", specifier = ">=5.1" },
-    { name = "skypilot", extras = ["runpod"], specifier = ">=0.11.2" },
+    { name = "skypilot", extras = ["runpod"], marker = "extra == 'cloud'", specifier = ">=0.11.2" },
     { name = "tiktoken", specifier = ">=0.12.0" },
     { name = "torch", marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'cuda'", specifier = "==2.8.0" },
     { name = "transformers", specifier = ">=4.56.2" },
@@ -4421,7 +4423,7 @@ requires-dist = [
     { name = "verifiers", specifier = ">=0.3.0" },
     { name = "vllm", marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'cuda'", specifier = "==0.10.2" },
 ]
-provides-extras = ["cuda"]
+provides-extras = ["cloud", "cuda"]
 
 [package.metadata.requires-dev]
 dev = [

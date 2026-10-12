@@ -71,6 +71,10 @@ For pipeline changes, run the relevant CLI with the smallest practical input. Fo
 
 Inspect pipeline artifacts under `data_pipelines/data/` and evaluation `traces.jsonl` files under `environments/ragent_deep_search/outputs/`.
 
+## README Changes
+
+Only create or modify README files when the user explicitly instructs you to do so. Do not update READMEs as an incidental part of code, dependency, or configuration changes.
+
 ## Commit and Pull Request Guidelines
 
 - Use imperative, concise commit subjects of at most 72 characters. Optional scopes include `core:`, `pipelines:`, `model-services:`, `env/deep-search:`, and `docs:`.
