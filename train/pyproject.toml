@@ -1,0 +1,39 @@
+[project]
+name = "train"
+version = "0.1.0"
+description = "Fireworks serverless RL with Verifiers environments"
+readme = "README.md"
+authors = [
+    { name = "Diego Peláez Paquico", email = "diegi97@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "aiohttp>=3.12",
+    "chz>=0.4.0",
+    "fireworks-ai[training]>=1.2.22",
+    "fireworks-training-cookbook",
+    "ipykernel>=7.4.0",
+    "ipywidgets>=8.1.9",
+    "python-dotenv>=1.2.4",
+    "renderers>=0.1.11",
+    "ragent-core==0.4.2",
+    "ragent-deep-search==0.2.4",
+    "tinker>=0.23.0",
+    "verifiers>=0.3.1",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+fireworks-training-cookbook = { git = "https://github.com/fw-ai/cookbook.git", subdirectory = "training", rev = "a55b26e7c4f3da481a3c9305dd24f42450e5dee2" }
+ragent-core = { path = "../ragent_core", editable = true }
+ragent-deep-search = { path = "../environments/ragent_deep_search", editable = true }
+
+[dependency-groups]
+dev = ["pytest>=8.4", "pytest-asyncio>=1.0"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["."]
+testpaths = ["tests"]

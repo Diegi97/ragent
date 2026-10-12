@@ -229,3 +229,4 @@ data_pipelines/data/
 .prefect/
 verifiers/
 .prime/
+wandb/

@@ -1,0 +1,56 @@
+# From train/: uv run python main.py @ configs/train.toml
+# Evaluate the same initial/restored policy: append mode=eval.
+# CLI key=value arguments override this file; omitted settings use CLI defaults.
+# env_config and log_path are relative to this file.
+[train]
+
+# run_name = "deep-search"
+
+env_config = "environment.toml"
+mode = "train"
+base_model = "accounts/fireworks/models/qwen3p8-27b"
+tokenizer_model = "Qwen/Qwen3.8-27B"
+lora_rank = 32
+learning_rate = 1e-5
+kl_beta = 0.0
+
+max_tasks = 320
+epochs = 1
+shuffle = false
+seed = 0
+# max_steps = 10 # Additional optimizer updates in this invocation.
+completions_per_prompt = 8
+prompt_groups_per_step = 32
+pipeline_chunks_per_step = 2
+max_concurrent_rollouts = 32
+max_head_offpolicy_versions = 0
+max_incomplete_group_retries = 2
+# min_group_size = 8 # Omitted: use completions_per_prompt.
+
+max_completion_tokens = 16384
+max_seq_len = 524288
+temperature = 1.0
+sample_timeout = 2400.0
+router_replay = true
+router_replay_completion_only = true
+anchor_logp = "old_policy"
+eps_clip = 0.2
+grad_clip_norm = 0.0
+
+eval_tasks = 1
+eval_rollouts = 2
+dcp_save_interval = 10
+save_final_checkpoint = true
+snapshot_prefix = "ragent-async-rl"
+log_path = "../outputs"
+# Set WANDB_ENTITY in ../.env to enable W&B logging.
+project = "ragent-fireworks-rl"
+
+# Resume with the same task selection, epochs, shuffle, and seed.
+# init_from_checkpoint = "account/run/checkpoint"
+# step_offset = 10
+# resolved_tasks_offset = 320
+
+# Optional native table; JSON strings on the CLI still work.
+# [train.chat_template_kwargs]
+# enable_thinking = true

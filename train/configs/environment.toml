@@ -1,0 +1,24 @@
+# Native Verifiers environment used by both train and eval modes.
+# Local paths are relative to this file; Hugging Face identifiers stay unchanged.
+# The launcher selects the train split for training and the test split for eval.
+[env.taskset]
+id = "ragent_deep_search"
+dataset_path = "diegi97/ragent-rubrics"
+
+[env.taskset.tools]
+namespace = "default"
+device = "cpu"
+retrieval_mode = "bm25"
+env_file = "../.env"
+
+[env.taskset.task.judge]
+model = "deepseek/deepseek-v4.1-flash"
+base_url = "https://api.pinference.ai/api/v1"
+api_key_var = "PRIME_API_KEY"
+max_criteria = 8
+
+[env.agent.harness]
+id = "null"
+
+[env.agent.runtime]
+type = "subprocess"
