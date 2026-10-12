@@ -1,4 +1,4 @@
-"""Train native Verifiers tasks on Fireworks' async serverless RL pool."""
+"""Train native Verifiers tasks on Fireworks' async serverless RL pool. Adapted from https://github.com/fw-ai/cookbook/blob/main/training/recipes/experiment/async_rl_loop_serverless.py"""
 
 import asyncio
 import hashlib
